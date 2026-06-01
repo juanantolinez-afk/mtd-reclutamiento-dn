@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<!-- Desarrollado por donangeel · 2026 -->
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Iniciar sesión · MTD Reclutamiento</title>
+  <script>
+    (function() {
+      var t = localStorage.getItem('mtd-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+      window._googleOauthEnabled = __GOOGLE_OAUTH_ENABLED__;
+    })();
+  </script>
+  <!-- Google Identity Services (solo si OAuth está configurado) -->
+  <script>
+    if (window._googleOauthEnabled) {
+      var s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.async = true; s.defer = true;
+      document.head.appendChild(s);
+    }
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0a0a0f;
+      --surface:  #111118;
+      --surface-2:#15151e;
+      --border:   rgba(255,255,255,0.06);
+      --border-md:rgba(255,255,255,0.11);
+      --text:     #f1f5f9;
+      --text-2:   #cbd5e1;
+      --muted:    #64748b;
+      --accent:   #6366f1;
+      --accent-2: #818cf8;
+      --red:      #f87171;
+      --radius:   10px;
+    }
+    html[data-theme="light"] {
+      --bg:       #f0f4f9;
+      --surface:  #ffffff;
+      --surface-2:#f7f9fc;
+      --border:   rgba(15,25,60,0.08);
+      --border-md:rgba(15,25,60,0.14);
+      --text:     #0f1929;
+      --text-2:   #2d3f55;
+      --muted:    #5a7590;
+      --red:      #dc2626;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      -webkit-font-smoothing: antialiased;
+      transition: background 220ms ease, color 220ms ease;
+    }
+
+    /* Fondo con patrón sutil */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(rgba(99,102,241,0.04) 1px, transparent 1px);
+      background-size: 28px 28px;
+      pointer-events: none;
+    }
+
+    .login-wrap {
+      width: 100%;
+      max-width: 400px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Logo / cabecera */
+    .login-logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 28px;
+      gap: 10px;
+    }
+    .login-logo-mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1D6FBF;
+    }
+    .login-logo-mark img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .login-logo-mark svg { width: 100%; height: 100%; display: block; }
+    .login-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .login-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: -4px;
+      text-align: center;
+    }
+
+    /* Card */
+    .login-card {
+      background: var(--surface);
+      border: 1px solid var(--border-md);
+      border-radius: 16px;
+      padding: 32px 28px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+    html[data-theme="light"] .login-card {
+      box-shadow: 0 8px 32px rgba(15,25,60,0.10);
+    }
+
+    .login-field { margin-bottom: 16px; }
+    .login-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .login-input {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border-md);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 10px 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 180ms ease, box-shadow 180ms ease;
+    }
+    .login-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.18);
+    }
+    .login-input::placeholder { color: var(--muted); }
+
+    /* Botón */
+    .login-btn {
+      width: 100%;
+      margin-top: 8px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 11px;
+      cursor: pointer;
+      transition: background 180ms ease, box-shadow 180ms ease, transform 150ms ease;
+      box-shadow: 0 2px 10px rgba(99,102,241,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .login-btn:hover { background: #818cf8; box-shadow: 0 4px 18px rgba(99,102,241,0.45); transform: translateY(-1px); }
+    .login-btn:active { transform: translateY(0); }
+    .login-btn:disabled { opacity: .55; cursor: default; transform: none; }
+
+    /* Spinner inline */
+    .btn-spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      display: none;
+    }
+    .login-btn.loading .btn-spinner { display: block; }
+    .login-btn.loading .btn-text { opacity: .6; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error */
+    .login-error {
+      margin-top: 14px;
+      background: rgba(248,113,113,0.10);
+      border: 1px solid rgba(248,113,113,0.25);
+      border-radius: 7px;
+      padding: 10px 13px;
+      font-size: 13px;
+      color: var(--red);
+      display: none;
+    }
+    .login-error.visible { display: block; }
+
+    /* Toggle tema */
+    .theme-row {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .theme-lnk {
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 5px;
+      transition: color 180ms;
+      font-family: inherit;
+    }
+    .theme-lnk:hover { color: var(--text-2); }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-logo">
+      <div class="login-logo-mark">
+        <img src="/logo.png" alt="MTD"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
+        <svg viewBox="0 0 52 52" fill="none" style="display:none">
+          <rect width="52" height="52" fill="#1D6FBF"/>
+          <path d="M7 26h8l5-10 5.5 18 5-10H45" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="login-title">MTD Reclutamiento</div>
+      <div class="login-subtitle">Sistema interno · Medicina y Terapias Domiciliarias</div>
+    </div>
+
+    <div class="login-card">
+      <form id="login-form" autocomplete="on">
+        <div class="login-field">
+          <label class="login-label" for="email">Correo electrónico</label>
+          <input class="login-input" type="email" id="email" name="email"
+                 placeholder="usuario@mtd.net.co" autocomplete="email" required />
+        </div>
+        <div class="login-field">
+          <label class="login-label" for="password">Contraseña</label>
+          <input class="login-input" type="password" id="password" name="password"
+                 placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button class="login-btn" type="submit" id="login-btn">
+          <span class="btn-spinner"></span>
+          <span class="btn-text">Iniciar sesión</span>
+        </button>
+        <div class="login-error" id="login-error"></div>
+      </form>
+
+      <!-- Divider + Google button (solo si GOOGLE_OAUTH_CLIENT_ID está configurado) -->
+      <div id="google-section" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;margin:18px 0 14px">
+          <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
+          <span style="font-size:11px;color:var(--muted);white-space:nowrap">o continúa con</span>
+          <div style="flex:1;height:1px;background:rgba(255,255,255,0.08)"></div>
+        </div>
+        <!-- Configuración GSI (invisible) -->
+        <div id="g_id_onload"
+             data-client_id="__GOOGLE_CLIENT_ID__"
+             data-ux_mode="redirect"
+             data-login_uri="__LOGIN_URI__"
+             data-auto_select="false">
+        </div>
+        <!-- Botón centrado -->
+        <div style="display:flex;justify-content:center;">
+          <div class="g_id_signin"
+               data-type="standard"
+               data-size="large"
+               data-theme="filled_black"
+               data-text="signin_with"
+               data-shape="rectangular"
+               data-width="316"
+               data-locale="es">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="theme-row">
+      <button class="theme-lnk" id="toggle-theme-btn">☀️ Cambiar a modo claro</button>
+    </div>
+  </div>
+
+  <script>
+    // Actualizar botón de tema según estado actual
+    const themeBtn = document.getElementById('toggle-theme-btn');
+    function syncThemeBtn() {
+      const t = document.documentElement.getAttribute('data-theme') || 'dark';
+      themeBtn.textContent = t === 'dark' ? '☀️ Cambiar a modo claro' : '🌙 Cambiar a modo oscuro';
+    }
+    syncThemeBtn();
+
+    themeBtn.addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+      const next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('mtd-theme', next);
+      syncThemeBtn();
+    });
+
+    // Mostrar botón de Google si está configurado
+    if (window._googleOauthEnabled) {
+      document.getElementById('google-section').style.display = 'block';
+    }
+
+    // Mostrar error si Google redirigió con ?error=
+    const urlError = new URLSearchParams(window.location.search).get('error');
+    if (urlError) {
+      errEl.textContent = urlError;
+      errEl.classList.add('visible');
+    }
+
+    // Login
+    const form  = document.getElementById('login-form');
+    const btn   = document.getElementById('login-btn');
+    const errEl = document.getElementById('login-error');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.classList.remove('visible');
+      btn.disabled = true;
+      btn.classList.add('loading');
+
+      try {
+        const res  = await fetch('/api/auth/login', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            email:    document.getElementById('email').value.trim(),
+            password: document.getElementById('password').value,
+          }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          window.location.href = '/';
+        } else {
+          errEl.textContent = data.error || 'Credenciales inválidas';
+          errEl.classList.add('visible');
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          document.getElementById('password').focus();
+        }
+      } catch {
+        errEl.textContent = 'Error de conexión con el servidor';
+        errEl.classList.add('visible');
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    });
+  </script>
+</body>
+</html>

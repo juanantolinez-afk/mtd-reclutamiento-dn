@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<!-- Desarrollado por donangeel · 2026 -->
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTD Reclutamiento</title>
+  <script>(function(){var t=localStorage.getItem('mtd-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();</script>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="stylesheet" href="/css/flatpickr.min.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-mark">
+          <img src="/logo.png" alt="MTD" class="logo-img"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
+          <svg class="logo-svg-fallback" viewBox="0 0 34 34" fill="none" aria-hidden="true" style="display:none">
+            <rect width="34" height="34" rx="9" fill="#1D6FBF"/>
+            <rect width="34" height="34" rx="9" fill="url(#lg)" opacity=".5"/>
+            <path d="M4 17h6l3.3-6.6L17 24.2l3.3-6.6H30" stroke="white" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="lg" x1="0" y1="0" x2="34" y2="34">
+                <stop stop-color="white" stop-opacity=".2"/>
+                <stop offset="1" stop-color="white" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <span class="logo-title">MTD</span>
+          <span class="logo-sub">Reclutamiento</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" data-view="vacancies">Vacantes</button>
+        <button class="nav-btn" id="btn-sheets" title="Abrir Google Sheets">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" style="margin-right:4px" aria-hidden="true">
+            <rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="1" y1="5" x2="13" y2="5" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="1" y1="9" x2="13" y2="9" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="5" y1="5" x2="5" y2="13" stroke="currentColor" stroke-width="1.2"/>
+          </svg>Base de datos
+        </button>
+        <label class="theme-toggle" title="Modo claro / oscuro">
+          <input type="checkbox" id="theme-input" />
+          <span class="toggle-track">
+            <span class="toggle-thumb" id="toggle-thumb-icon">🌙</span>
+          </span>
+        </label>
+        <div class="user-chip" id="user-chip" style="display:none">
+          <div class="user-chip-avatar" id="user-avatar">?</div>
+          <span id="user-name"></span>
+        </div>
+        <button class="btn-logout" id="btn-logout" style="display:none">Salir</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ===== Vista: Vacantes ===== -->
+    <section id="view-vacancies" class="view active">
+      <div class="page-header">
+        <div>
+          <h1>Vacantes</h1>
+          <p class="subtitle">Medicina y Terapias Domiciliarias · Bizneo ATS</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="cache-badge" class="badge badge-gray hidden">Desde caché</span>
+          <button class="btn btn-ghost" id="btn-refresh-vacancies">↺ Actualizar desde Bizneo</button>
+        </div>
+      </div>
+
+      <div id="vacancies-loading" class="loading hidden">
+        <div class="spinner"></div><span id="vacancies-loading-text">Consultando Bizneo</span>
+      </div>
+
+      <div id="filter-bar" class="filter-bar hidden">
+        <input type="text" id="vacancy-search" placeholder="Buscar por nombre…" autocomplete="off" />
+        <select id="filter-status">
+          <option value="">Todos los estados</option>
+          <option value="activated" selected>Activas</option>
+          <option value="closed">Cerradas</option>
+        </select>
+        <select id="filter-dept">
+          <option value="">Todos los departamentos</option>
+        </select>
+        <span id="search-count" class="search-count"></span>
+      </div>
+
+      <div id="vacancies-grid" class="vacancies-grid"></div>
+
+      <!-- ===== Panel candidatos ===== -->
+      <div id="candidates-panel" class="panel hidden">
+        <div class="panel-header">
+          <div>
+            <h2 id="panel-title">Candidatos</h2>
+            <p id="panel-subtitle" class="subtitle"></p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-primary" id="btn-process" data-force="0">⚡ Calcular scores</button>
+            <button class="btn btn-ghost" id="btn-force-reprocess" title="Ignorar caché y volver a analizar todos los CVs con IA" style="font-size:12px;padding:6px 10px">↺ Forzar</button>
+            <button class="btn btn-ghost" id="btn-close-panel">✕ Cerrar</button>
+          </div>
+        </div>
+
+        <div id="stage-tabs" class="stage-tabs hidden">
+          <button class="stage-tab active" data-tab="postulados">
+            Postulados <span class="tab-badge" id="tab-badge-postulados"></span>
+          </button>
+          <button class="stage-tab" data-tab="preseleccionados">
+            Preseleccionados <span class="tab-badge" id="tab-badge-preseleccionados"></span>
+          </button>
+          <button class="stage-tab" data-tab="finalistas">
+            Finalistas <span class="tab-badge" id="tab-badge-finalistas"></span>
+          </button>
+          <button class="stage-tab stage-tab-nc" data-tab="no_continua">
+            No continúa <span class="tab-badge tab-badge-nc" id="tab-badge-no-continua"></span>
+          </button>
+        </div>
+
+        <!-- Filtro procesados/sin procesar -->
+        <div id="process-filter-bar" class="process-filter-bar hidden">
+          <span class="pf-label">Filtrar</span>
+          <button class="pf-btn active" data-pf="all">Todos</button>
+          <button class="pf-btn" data-pf="pending">Sin procesar</button>
+          <button class="pf-btn" data-pf="done">Procesados</button>
+          <span class="pf-count" id="pf-count"></span>
+        </div>
+
+        <div id="progress-wrap" class="progress-wrap hidden">
+          <div class="progress-bar-outer">
+            <div id="progress-fill-sse" class="progress-fill-sse"></div>
+          </div>
+          <span id="progress-label" class="progress-label">Iniciando…</span>
+        </div>
+
+        <div id="candidates-loading" class="loading hidden">
+          <div class="spinner"></div><span id="candidates-loading-text">Cargando</span>
+        </div>
+
+        <div id="candidates-table-wrap" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <!-- ===== Vista: Subir CV ===== -->
+    <section id="view-cv-upload" class="view hidden">
+      <div class="page-header">
+        <div>
+          <h1>Análisis de CV</h1>
+          <p class="subtitle">Sube un CV para extraer información y calcular score</p>
+        </div>
+      </div>
+      <div class="upload-container">
+        <div class="upload-zone" id="upload-zone">
+          <div class="upload-icon">📄</div>
+          <p>Arrastra un CV aquí o haz clic para seleccionar</p>
+          <p class="upload-hint">PDF · DOC · DOCX · Máximo 10 MB</p>
+          <input type="file" id="cv-file-input" accept=".pdf,.doc,.docx" class="hidden" />
+        </div>
+        <div id="cv-result" class="cv-result hidden"></div>
+      </div>
+    </section>
+
+    <!-- ===== Vista: Estado ===== -->
+    <section id="view-settings" class="view hidden">
+      <div class="page-header">
+        <div>
+          <h1>Estado del Sistema</h1>
+          <p class="subtitle">Verificación de conexiones y credenciales</p>
+        </div>
+        <button class="btn btn-primary" id="btn-check-health">↻ Verificar</button>
+      </div>
+      <div id="health-grid" class="health-grid">
+        <div class="health-card" id="hc-bizneo">
+          <div class="hc-icon">🔗</div>
+          <div class="hc-info">
+            <span class="hc-name">Bizneo ATS</span>
+            <span class="hc-status pending">Pendiente</span>
+          </div>
+        </div>
+        <div class="health-card" id="hc-openrouter">
+          <div class="hc-icon">🤖</div>
+          <div class="hc-info">
+            <span class="hc-name">OpenRouter (LLM)</span>
+            <span class="hc-status pending">Pendiente</span>
+          </div>
+        </div>
+        <div class="health-card" id="hc-sheets">
+          <div class="hc-icon">📊</div>
+          <div class="hc-info">
+            <span class="hc-name">Google Sheets</span>
+            <span class="hc-status pending">Pendiente</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    Desarrollado por <a href="#" tabindex="-1">donangeel</a> · 2026 &nbsp;·&nbsp; MTD Colombia
+  </footer>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Modal: Agendar entrevista -->
+  <div id="cal-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="nc-modal-box" style="max-width:400px">
+      <div class="nc-modal-header">
+        <span class="modal-title">📅 Agendar entrevista</span>
+        <button class="nc-modal-close" id="cal-modal-close">✕</button>
+      </div>
+      <div class="nc-modal-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px" id="cal-modal-cand"></p>
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Fecha y hora de inicio</label>
+          <input id="cal-start" type="text" readonly placeholder="Selecciona fecha y hora" style="width:100%;background:var(--surface-2);border:1px solid var(--border-md);border-radius:8px;color:var(--text);font-size:14px;padding:10px 12px;font-family:inherit;cursor:pointer" />
+        </div>
+        <div style="margin-bottom:6px">
+          <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Duración</label>
+          <select id="cal-duration" style="width:100%;background:var(--surface-2);border:1px solid var(--border-md);border-radius:8px;color:var(--text);font-size:14px;padding:10px 12px;font-family:inherit;cursor:pointer;appearance:none">
+            <option value="30">30 minutos</option>
+            <option value="60" selected>1 hora</option>
+            <option value="90">1 hora 30 min</option>
+            <option value="120">2 horas</option>
+          </select>
+        </div>
+        <p id="cal-modal-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none"></p>
+      </div>
+      <div class="nc-modal-footer">
+        <button class="btn btn-ghost" id="cal-modal-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="cal-modal-confirm">Abrir en Calendar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: No continúa -->
+  <div id="nc-modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="nc-modal-box">
+      <div class="nc-modal-header">
+        <span class="modal-title">Notificar no continuidad</span>
+        <button class="nc-modal-close" id="nc-modal-close">✕</button>
+      </div>
+      <div class="nc-modal-body">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Se enviará un correo al candidato. Puedes editar el cuerpo antes de enviar.</p>
+        <div style="margin-bottom:10px">
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">PARA</label>
+          <input id="nc-email-to" type="email" style="width:100%;background:var(--surface-2);border:1px solid var(--border-md);border-radius:6px;color:var(--text);font-size:13px;padding:8px 10px;font-family:inherit" readonly />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">CUERPO DEL CORREO</label>
+          <textarea id="nc-email-body" rows="12" style="width:100%;background:var(--surface-2);border:1px solid var(--border-md);border-radius:6px;color:var(--text);font-size:12px;padding:10px;font-family:inherit;resize:vertical;line-height:1.6"></textarea>
+        </div>
+      </div>
+      <div class="nc-modal-footer">
+        <button class="btn btn-ghost" id="nc-modal-cancel">Cancelar</button>
+        <button class="btn btn-danger" id="nc-modal-send">Enviar correo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: confirmar apertura de Sheets -->
+  <div class="modal-backdrop" id="sheets-backdrop"></div>
+  <div class="modal-box" id="sheets-modal">
+    <div class="modal-title">📊 Base de datos</div>
+    <div class="modal-subtitle">¿Quieres abrir el Google Sheets de candidatos?</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modal-sheets-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="modal-sheets-confirm">Abrir</button>
+    </div>
+  </div>
+
+  <!-- ===== Detail Drawer ===== -->
+  <div id="drawer-overlay" class="drawer-overlay"></div>
+  <aside id="detail-drawer" class="detail-drawer" role="dialog" aria-modal="true">
+    <div class="drawer-header-bar">
+      <div style="min-width:0">
+        <div class="drawer-cand-name" id="drawer-name"></div>
+        <div class="drawer-cand-sub" id="drawer-sub"></div>
+      </div>
+      <button class="drawer-close-btn" id="drawer-close" title="Cerrar">✕</button>
+    </div>
+    <div class="drawer-scroll" id="drawer-content"></div>
+  </aside>
+
+  <script src="/js/flatpickr.min.js"></script>
+  <script src="/js/flatpickr-es.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
