@@ -22,6 +22,9 @@ const BUILD_VERSION = Date.now();
 
 const app = express();
 
+// Confiar en el proxy de Bonto para que req.protocol sea 'https'
+app.set('trust proxy', 1);
+
 app.use(compression({
   filter: (req, res) => {
     if (req.headers.accept?.includes('text/event-stream')) return false;
@@ -137,7 +140,8 @@ app.get('/login', (req, res) => {
     try { jwt.verify(token, JWT_SECRET); return res.redirect('/'); } catch {}
   }
   const clientId  = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
-  const loginUri  = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+  const loginUri  = process.env.GOOGLE_OAUTH_REDIRECT_URI ||
+    `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'login.html'), 'utf8')
     .replace('__GOOGLE_CLIENT_ID__', clientId)
     .replace('__GOOGLE_OAUTH_ENABLED__', clientId ? 'true' : 'false')

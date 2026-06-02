@@ -182,6 +182,14 @@ router.get('/:id/procesar', async (req, res) => {
     if (typeof res.flush === 'function') res.flush();
   };
 
+  // Heartbeat cada 20s para que el proxy de Bonto no cierre la conexión por inactividad
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(': ping\n\n');
+      if (typeof res.flush === 'function') res.flush();
+    }
+  }, 20000);
+
   try {
     const key = `bizneo:candidates:${req.params.id}`;
     let candidates = cache.get(key);
@@ -400,6 +408,8 @@ router.get('/:id/procesar', async (req, res) => {
     send({ type: 'done' });
   } catch (err) {
     send({ type: 'error', message: err.message });
+  } finally {
+    clearInterval(heartbeat);
   }
 
   res.end();

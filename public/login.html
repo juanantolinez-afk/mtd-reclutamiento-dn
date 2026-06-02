@@ -316,17 +316,17 @@
       document.getElementById('google-section').style.display = 'block';
     }
 
+    // Login
+    const form  = document.getElementById('login-form');
+    const btn   = document.getElementById('login-btn');
+    const errEl = document.getElementById('login-error');
+
     // Mostrar error si Google redirigió con ?error=
     const urlError = new URLSearchParams(window.location.search).get('error');
     if (urlError) {
       errEl.textContent = urlError;
       errEl.classList.add('visible');
     }
-
-    // Login
-    const form  = document.getElementById('login-form');
-    const btn   = document.getElementById('login-btn');
-    const errEl = document.getElementById('login-error');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
