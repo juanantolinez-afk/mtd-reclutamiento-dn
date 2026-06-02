@@ -11,7 +11,6 @@ const fs           = require('fs');
 const jwt          = require('jsonwebtoken');
 
 const vacanciesRouter = require('./routes/vacancies');
-const cvRouter        = require('./routes/cv');
 const sheetsRouter    = require('./routes/sheets');
 const authRouter      = require('./routes/auth');
 const authenticate    = require('./middleware/authenticate');
@@ -77,60 +76,9 @@ app.get('/api/config/clasificaciones', async (req, res) => {
   } catch { res.json({ success: false, data: [] }); }
 });
 
-// DEBUG temporal — muestra estructura real del candidato en Bizneo
-app.get('/api/debug-bizneo-candidate', authenticate, async (req, res) => {
-  const cache = require('./utils/cache');
-  const { getCandidatesForJob } = require('./services/bizneoService');
-
-  // Tomar jobId de la query o del caché de vacantes
-  let jobId = req.query.jobId;
-  if (!jobId) {
-    const cached = cache.get('bizneo:vacancies');
-    const firstJob = cached?.jobs?.[0];
-    if (!firstJob) return res.status(400).json({ error: 'No hay vacantes en caché todavía. Espera a que arranque el servidor y vuelve a intentar.' });
-    jobId = firstJob.id;
-  }
-
-  try {
-    const data  = await getCandidatesForJob(jobId, 1);
-    const cands = data.candidates || data.data || [];
-    if (!cands.length) return res.json({ message: `Vacante ${jobId} sin candidatos`, raw_response_keys: Object.keys(data) });
-    const c = cands[0];
-    res.json({
-      used_jobId:     jobId,
-      all_keys:       Object.keys(c),
-      id:             c.id,
-      slug:           c.slug,
-      url:            c.url,
-      profile_url:    c.profile_url,
-      status:         c.status,
-      state:          c.state,
-      phase:          c.phase,
-      pipeline_phase: c.pipeline_phase,
-      current_phase:  c.current_phase,
-      state_name:     c.state_name,
-      phase_name:     c.phase_name,
-      pipeline_step:  c.pipeline_step,
-      pipeline_stage: c.pipeline_stage,
-      recruited:      c.recruited,
-      discard_reason: c.discard_reason,
-      user_meta_keys: Object.keys(c.user_metadata || {}),
-      user_metadata:  c.user_metadata,
-      photo:          c.photo,
-      avatar:         c.avatar,
-      avatar_url:     c.avatar_url,
-      // Todos los campos de primer nivel para no perder nada
-      full_object:    c,
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ── Rutas protegidas ─────────────────────────────────────────────────────────
 app.use('/api', limiter, authenticate);
 app.use('/api/vacancies', vacanciesRouter);
-app.use('/api/cv',        cvRouter);
 app.use('/api/sheets',    sheetsRouter);
 
 // ── Página de login ──────────────────────────────────────────────────────────
@@ -139,8 +87,8 @@ app.get('/login', (req, res) => {
   if (token) {
     try { jwt.verify(token, JWT_SECRET); return res.redirect('/'); } catch {}
   }
-  const clientId  = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
-  const loginUri  = process.env.GOOGLE_OAUTH_REDIRECT_URI ||
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+  const loginUri = process.env.GOOGLE_OAUTH_REDIRECT_URI ||
     `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'login.html'), 'utf8')
     .replace('__GOOGLE_CLIENT_ID__', clientId)

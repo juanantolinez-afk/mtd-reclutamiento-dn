@@ -9,27 +9,6 @@ function _auth() {
   });
 }
 
-// El ID del calendario del reclutador (debe haber compartido su calendar con el service account)
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
-
-async function createInterviewEvent({ candidateName, candidateEmail, recruiterEmail, startDateTime, endDateTime, vacancyTitle }) {
-  const calendar = google.calendar({ version: 'v3', auth: _auth() });
-
-  // Se crea en el calendario del service account (primary).
-  // Sin attendees: el service account no tiene DWD para invitar.
-  // El reclutador recibe el link del evento para abrirlo y agregar invitados manualmente.
-  const event = {
-    summary:     `Entrevista · ${candidateName} · ${vacancyTitle || ''}`,
-    description: `Candidato: ${candidateName}\nEmail: ${candidateEmail}\nVacante: ${vacancyTitle || ''}\nReclutador: ${recruiterEmail || ''}`,
-    start: { dateTime: startDateTime, timeZone: 'America/Bogota' },
-    end:   { dateTime: endDateTime,   timeZone: 'America/Bogota' },
-    reminders: { useDefault: true },
-  };
-
-  const res = await calendar.events.insert({ calendarId: 'primary', requestBody: event });
-  return res.data;
-}
-
 async function getUpcomingInterviews() {
   const calendar = google.calendar({ version: 'v3', auth: _auth() });
   const now      = new Date();
@@ -46,13 +25,9 @@ async function getUpcomingInterviews() {
   return res.data.items || [];
 }
 
-// Verifica entrevistas próximas y envía recordatorios por email
 async function checkAndSendReminders(sheetsService) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return;
-
   try {
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-    if (!calendarId) return;
+    if (!process.env.GOOGLE_CALENDAR_ID) return;
 
     const events = await getUpcomingInterviews();
     const today  = new Date();
@@ -71,20 +46,20 @@ async function checkAndSendReminders(sheetsService) {
       const fechaStr      = new Date(ev.start?.dateTime || ev.start?.date)
         .toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Bogota' });
 
-      const recruiterEmail = ev.organizer?.email || process.env.SMTP_USER;
+      const recruiterEmail = ev.organizer?.email || process.env.GMAIL_IMPERSONATE;
+      if (!recruiterEmail) continue;
 
       await emailService.sendMail({
         to:      recruiterEmail,
         subject: `Recordatorio entrevista ${diffDays === 0 ? 'HOY' : `en ${diffDays} día${diffDays > 1 ? 's' : ''}`} · ${candidateName}`,
         html:    emailService.entrevistaReminderBody({ candidateName, vacancyTitle, fechaEntrevista: fechaStr, diasRestantes: diffDays }),
-        text:    `Recordatorio: entrevista con ${candidateName} el ${fechaStr}`,
       });
 
-      console.log(`[Calendar] Recordatorio enviado a ${recruiterEmail} para entrevista con ${candidateName} (en ${diffDays} días)`);
+      console.log(`[Calendar] Recordatorio enviado a ${recruiterEmail} — ${candidateName} (en ${diffDays} días)`);
     }
   } catch (e) {
     console.warn('[Calendar] checkAndSendReminders:', e.message);
   }
 }
 
-module.exports = { createInterviewEvent, getUpcomingInterviews, checkAndSendReminders };
+module.exports = { getUpcomingInterviews, checkAndSendReminders };

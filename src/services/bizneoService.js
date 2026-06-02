@@ -77,11 +77,6 @@ async function getAllCandidatesForJob(jobId) {
   return allCandidates;
 }
 
-async function getCandidateDetails(candidateId) {
-  const response = await client.get(`/candidates/${candidateId}.json`);
-  return response.data;
-}
-
 async function getJobDetails(jobId) {
   try {
     const r = await client.get(`/jobs/${jobId}.json`);
@@ -90,11 +85,6 @@ async function getJobDetails(jobId) {
     console.warn(`[Bizneo] getJobDetails ${jobId}:`, e.response?.status || e.message);
     return null;
   }
-}
-
-async function getCVDownloadUrl(candidateId) {
-  const response = await client.get(`/candidates/${candidateId}/cv.json`);
-  return response.data;
 }
 
 // userId = user_id del candidato (distinto al id de candidatura)
@@ -112,16 +102,16 @@ async function addCandidateNote(userId, message) {
 }
 
 async function setCandidateStageTag(userId, newStage) {
-  // Reemplaza todas las etiquetas de etapa del candidato con la nueva
-  // Usamos add_company_tags_by_name — crea la etiqueta si no existe
   try {
-    await client.put(`/candidates/${userId}/company_tags/add_company_tags_by_name`, {
+    await client.patch(`/candidates/${userId}/company_tags`, { company_tag: { names: [] } });
+    const r = await client.put(`/candidates/${userId}/company_tags/add_company_tags_by_name`, {
       company_tag: { names: [newStage] },
     });
+    console.log(`[Bizneo] tag → ${newStage} (${r.status})`);
     return { ok: true };
   } catch (e) {
     const status = e.response?.status;
-    console.warn(`[Bizneo] setCandidateStageTag → HTTP ${status}:`, e.response?.data || e.message);
+    console.warn(`[Bizneo] setCandidateStageTag "${newStage}" → HTTP ${status}:`, e.response?.data || e.message);
     return { ok: false, status };
   }
 }
@@ -135,11 +125,8 @@ module.exports = {
   getActiveVacancies,
   getCandidatesForJob,
   getAllCandidatesForJob,
-  getCandidateDetails,
   getJobDetails,
-  getCVDownloadUrl,
   addCandidateNote,
   loadStageTags,
   setCandidateStageTag,
-  client,
 };

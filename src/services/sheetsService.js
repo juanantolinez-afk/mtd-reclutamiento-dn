@@ -319,8 +319,274 @@ async function getClasificaciones() {
     }));
 }
 
+// ── Formato y hoja guía ───────────────────────────────────────────────────────
+
+const GUIDE_SHEET = '📘 Guía';
+
+async function setupSheetsFormatting() {
+  const sheets = _client();
+  const sid    = _sid();
+
+  const meta     = await sheets.spreadsheets.get({ spreadsheetId: sid });
+  const sheetMap = {};
+  meta.data.sheets.forEach(s => { sheetMap[s.properties.title] = s.properties.sheetId; });
+
+  const requests = [];
+
+  // Crear hoja guía si no existe
+  if (!sheetMap[GUIDE_SHEET]) {
+    requests.push({ addSheet: { properties: { title: GUIDE_SHEET, index: 0 } } });
+  }
+
+  // Formatear encabezado de MTD_Candidatos
+  const mainId = sheetMap[SHEET_NAME];
+  if (mainId !== undefined) {
+    // Fila 1 fija
+    requests.push({
+      updateSheetProperties: {
+        properties: { sheetId: mainId, gridProperties: { frozenRowCount: 1 } },
+        fields: 'gridProperties.frozenRowCount',
+      },
+    });
+    // Encabezado azul MTD, texto blanco y negrita
+    requests.push({
+      repeatCell: {
+        range: { sheetId: mainId, startRowIndex: 0, endRowIndex: 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.059, green: 0.18, blue: 0.361 },
+            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+            horizontalAlignment: 'CENTER',
+          },
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+      },
+    });
+    // Anchos de columna legibles
+    const widths = [90,80,160,180,110,90,55,55,90,160,160,55,160,120,105,90,200,60,90,90,160,160,80,90,90,60];
+    widths.forEach((w, i) => {
+      requests.push({
+        updateDimensionProperties: {
+          range: { sheetId: mainId, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
+          properties: { pixelSize: w },
+          fields: 'pixelSize',
+        },
+      });
+    });
+  }
+
+  // Formatear MTD_Candidatos_Global, MTD_Usuarios, MTD_Clasificaciones
+  const sideSheets = [
+    { name: GLOBAL_SHEET,  widths: [90,160,180,105,80,200,70,90] },
+    { name: 'MTD_Usuarios', widths: [160,200,140,300,90,60] },
+    { name: CLF_SHEET,      widths: [100,130,320,80,80,60] },
+  ];
+
+  for (const { name, widths } of sideSheets) {
+    const sid2 = sheetMap[name];
+    if (sid2 === undefined) continue;
+    requests.push({
+      updateSheetProperties: {
+        properties: { sheetId: sid2, gridProperties: { frozenRowCount: 1 } },
+        fields: 'gridProperties.frozenRowCount',
+      },
+    });
+    requests.push({
+      repeatCell: {
+        range: { sheetId: sid2, startRowIndex: 0, endRowIndex: 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.059, green: 0.18, blue: 0.361 },
+            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+            horizontalAlignment: 'CENTER',
+          },
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+      },
+    });
+    widths.forEach((w, i) => {
+      requests.push({
+        updateDimensionProperties: {
+          range: { sheetId: sid2, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
+          properties: { pixelSize: w },
+          fields: 'pixelSize',
+        },
+      });
+    });
+  }
+
+  if (requests.length > 0) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: sid, requestBody: { requests } });
+  }
+
+  // Contenido de la hoja guía
+  const AZUL  = { red: 0.059, green: 0.18, blue: 0.361 };
+  const BLANCO = { red: 1, green: 1, blue: 1 };
+  const GRIS  = { red: 0.95, green: 0.95, blue: 0.95 };
+
+  const guideData = [
+    ['MTD RECLUTAMIENTO — GUÍA DEL SISTEMA', '', ''],
+    ['Sistema interno de reclutamiento · Medicina y Terapias Domiciliarias', '', ''],
+    ['', '', ''],
+    ['📋 MTD_Candidatos — Candidatos por vacante (hoja principal)', '', ''],
+    ['COLUMNA', 'DESCRIPCIÓN', 'EJEMPLO / VALORES'],
+    ['candidato_id', 'ID del candidato en Bizneo. No editar.', '82816989'],
+    ['vacante_id', 'ID de la vacante en Bizneo. No editar.', '1779543'],
+    ['nombre', 'Nombre completo del candidato.', 'María García'],
+    ['email', 'Correo electrónico del candidato.', 'maria@email.com'],
+    ['telefono', 'Teléfono de contacto.', '3001234567'],
+    ['ciudad', 'Ciudad de residencia.', 'Bogotá'],
+    ['edad', 'Edad calculada por IA desde el CV.', '28'],
+    ['score', 'Puntaje IA de compatibilidad con la vacante (0–60). Si la vacante no tiene descripción, queda vacío.', '45'],
+    ['clasificacion', 'Nivel del candidato según su score de completitud.', 'COMPLETO / REVISAR / INCOMPLETO'],
+    ['formacion', 'Historial académico procesado por IA. Formato JSON — no editar.', '[{"nivel":"pregrado",...}]'],
+    ['experiencia', 'Historial laboral procesado por IA. Formato JSON — no editar.', '[{"empresa":"...",...}]'],
+    ['anos_exp', 'Años de experiencia total calculados por IA.', '3.5'],
+    ['habilidades', 'Habilidades identificadas por IA. Formato JSON — no editar.', '["Excel","Trabajo en equipo"]'],
+    ['cv_status', 'Estado del procesamiento del CV.', 'leido_ia / sin_cv / ilegible / error'],
+    ['etapa', 'Etapa actual en el proceso de selección.', 'POSTULADO / PRESELECCIONADO / FINALISTA / NO_CONTINUA'],
+    ['calificacion_reclutador', 'Estrellas asignadas por el reclutador (1 a 5).', '4'],
+    ['nota_reclutador', 'Comentario escrito por el reclutador.', 'Buen perfil, experiencia relevante.'],
+    ['procesado_ia', 'Indica si el CV fue analizado por IA. No editar.', 'true / false'],
+    ['fecha_procesado', 'Fecha del último análisis IA. No editar.', '2026-06-02'],
+    ['fecha_promovido', 'Fecha del último cambio de etapa.', '2026-06-02'],
+    ['breakdown', 'Detalle interno del score y explicación del LLM. Formato JSON — no editar.', '{"completitud":...}'],
+    ['vacante_nombre', 'Nombre de la vacante a la que aplicó el candidato.', 'Auxiliar de Enfermería Bogotá'],
+    ['user_id', 'ID de usuario Bizneo para sincronizar etiquetas. No editar.', '42094434'],
+    ['fecha_postulacion', 'Fecha en que aplicó en Bizneo (dd/mm/aa).', '01/06/26'],
+    ['fecha_entrevista', 'Fecha de entrevista agendada (dd/mm/aa).', '05/06/26'],
+    ['score_vacante', 'Puntaje de match con los requisitos específicos de la vacante (0–100). "N/A" si la vacante no tiene descripción.', '78'],
+    ['', '', ''],
+    ['', '', ''],
+    ['👥 MTD_Candidatos_Global — Registro global por candidato', '', ''],
+    ['Guarda la etapa más avanzada que ha alcanzado cada candidato en cualquier vacante.', '', ''],
+    ['Sirve para detectar si un candidato ya está en proceso en otra vacante (indicador en la tabla).', '', ''],
+    ['COLUMNA', 'DESCRIPCIÓN', ''],
+    ['candidato_id', 'ID del candidato en Bizneo.', ''],
+    ['nombre', 'Nombre completo.', ''],
+    ['email', 'Correo electrónico.', ''],
+    ['etapa', 'Etapa más avanzada alcanzada en cualquier vacante.', ''],
+    ['vacante_id', 'ID de la vacante donde alcanzó esa etapa.', ''],
+    ['vacante_nombre', 'Nombre de esa vacante.', ''],
+    ['usuario_abrev', 'Iniciales del reclutador que lo promovió (ej: JUA).', ''],
+    ['fecha', 'Fecha en que alcanzó esa etapa.', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['🔐 MTD_Usuarios — Usuarios con acceso al sistema', '', ''],
+    ['⚠️ Para agregar un usuario: llena nombre, email, password (texto plano) y rol. El sistema genera el hash automáticamente al iniciar sesión.', '', ''],
+    ['COLUMNA', 'DESCRIPCIÓN', 'VALORES'],
+    ['nombre', 'Nombre completo del reclutador.', 'Juan Antolinez'],
+    ['email', 'Correo con el que inicia sesión.', 'juan@mtd.net.co'],
+    ['password', 'Contraseña en texto plano. El admin puede cambiarla directamente aquí.', 'MiClave2026!'],
+    ['password_hash', 'Hash de seguridad generado automáticamente. No editar.', '$2b$10$...'],
+    ['rol', 'Nivel de acceso del usuario.', 'admin / reclutador'],
+    ['activo', 'Define si el usuario puede iniciar sesión.', 'true / false'],
+    ['', '', ''],
+    ['', '', ''],
+    ['⚙️ MTD_Clasificaciones — Umbrales de clasificación', '', ''],
+    ['Ajusta los rangos de score para cambiar cuándo un candidato es COMPLETO, REVISAR o INCOMPLETO (escala 0–60).', '', ''],
+    ['COLUMNA', 'DESCRIPCIÓN', 'VALORES'],
+    ['codigo', 'Código interno. No cambiar.', 'COMPLETO'],
+    ['nombre_display', 'Nombre que aparece en la app.', 'COMPLETO'],
+    ['descripcion', 'Descripción del criterio de clasificación.', 'Candidato con toda la información...'],
+    ['umbral_min', 'Score mínimo para esta clasificación (0–60).', '40'],
+    ['umbral_max', 'Score máximo para esta clasificación (0–60).', '60'],
+    ['activo', 'Si es false, no aparece en la app.', 'true / false'],
+  ];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sid,
+    range: `${GUIDE_SHEET}!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: guideData },
+  });
+
+  // Formatear la hoja guía
+  const guideMeta   = await sheets.spreadsheets.get({ spreadsheetId: sid });
+  const guideSheetId = guideMeta.data.sheets.find(s => s.properties.title === GUIDE_SHEET)?.properties?.sheetId;
+
+  if (guideSheetId !== undefined) {
+    const sectionRows = [3, 33, 47, 57]; // filas de sección (0-indexed)
+    const headerRows  = [4, 36, 50, 60]; // filas de encabezado de tabla
+    const fmtRequests = [];
+
+    // Título principal
+    fmtRequests.push({
+      repeatCell: {
+        range: { sheetId: guideSheetId, startRowIndex: 0, endRowIndex: 1 },
+        cell: { userEnteredFormat: { textFormat: { bold: true, fontSize: 14 }, backgroundColor: AZUL } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+
+    // Subtítulo
+    fmtRequests.push({
+      repeatCell: {
+        range: { sheetId: guideSheetId, startRowIndex: 1, endRowIndex: 2 },
+        cell: { userEnteredFormat: { textFormat: { italic: true }, backgroundColor: AZUL, textFormat: { foregroundColor: { red: 0.8, green: 0.9, blue: 1 } } } },
+        fields: 'userEnteredFormat(textFormat,backgroundColor)',
+      },
+    });
+
+    // Encabezados de sección (azul oscuro)
+    for (const row of sectionRows) {
+      fmtRequests.push({
+        repeatCell: {
+          range: { sheetId: guideSheetId, startRowIndex: row, endRowIndex: row + 1 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: AZUL,
+              textFormat: { bold: true, foregroundColor: BLANCO, fontSize: 11 },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
+    }
+
+    // Encabezados de tabla (gris)
+    for (const row of headerRows) {
+      fmtRequests.push({
+        repeatCell: {
+          range: { sheetId: guideSheetId, startRowIndex: row, endRowIndex: row + 1 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: GRIS,
+              textFormat: { bold: true },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
+    }
+
+    // Anchos de columna de la guía
+    [[0, 220], [1, 500], [2, 280]].forEach(([i, w]) => {
+      fmtRequests.push({
+        updateDimensionProperties: {
+          range: { sheetId: guideSheetId, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
+          properties: { pixelSize: w },
+          fields: 'pixelSize',
+        },
+      });
+    });
+
+    // Fila 1 fija
+    fmtRequests.push({
+      updateSheetProperties: {
+        properties: { sheetId: guideSheetId, gridProperties: { frozenRowCount: 1 } },
+        fields: 'gridProperties.frozenRowCount',
+      },
+    });
+
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId: sid, requestBody: { requests: fmtRequests } });
+  }
+
+  console.log('  [Sheets] Formato y guía aplicados ✓');
+}
+
 module.exports = {
   ensureSheet, getCandidatesForVacancy, getCandidateById, upsertCandidate, updateFields,
   getSpreadsheetInfo, getVacancyStageSummary, upsertGlobalCandidate, getAllGlobalCandidates,
-  getClasificaciones, ensureClasificacionesSheet,
+  getClasificaciones, ensureClasificacionesSheet, setupSheetsFormatting,
 };

@@ -83,13 +83,20 @@ router.patch('/candidatos/:candidateId/stage', async (req, res) => {
       fecha:          fecha_promovido,
     }).catch(e => console.warn('[Global]', e.message));
 
-    // Bizneo: aplicar etiqueta de etapa usando user_id
+    // Bizneo: etiqueta + nota de cambio de etapa
     let bizneoSynced = false;
     if (ok) {
       const userId = await resolveUserId(req.params.candidateId, vacancyId);
       if (userId) {
-        const r  = await bizneoService.setCandidateStageTag(userId, stage);
+        const r = await bizneoService.setCandidateStageTag(userId, stage);
         bizneoSynced = r.ok;
+        const reclutador = req.user?.nombre || 'Reclutador';
+        const saved = await sheetsService.getCandidateById(req.params.candidateId, vacancyId).catch(() => null);
+        const noteParts = [`🔄 Etapa: ${stage}`];
+        if (saved?.calificacion_reclutador) noteParts.push(`⭐ ${saved.calificacion_reclutador}/5`);
+        if (saved?.nota_reclutador?.trim()) noteParts.push(saved.nota_reclutador.trim());
+        noteParts.push(reclutador);
+        bizneoService.addCandidateNote(userId, noteParts.join(' — ')).catch(() => {});
       }
     }
 
@@ -101,7 +108,7 @@ router.patch('/candidatos/:candidateId/stage', async (req, res) => {
 
 // PATCH /api/sheets/candidatos/:candidateId/rating
 router.patch('/candidatos/:candidateId/rating', async (req, res) => {
-  const { vacancyId, rating, nota, candidateName, etapa } = req.body;
+  const { vacancyId, rating, nota, candidateName } = req.body;
   if (!vacancyId) return res.status(400).json({ success: false, error: 'vacancyId es requerido' });
   try {
     const ok = await sheetsService.updateFields(req.params.candidateId, vacancyId, {
@@ -112,11 +119,9 @@ router.patch('/candidatos/:candidateId/rating', async (req, res) => {
     // Nota en Bizneo siempre que haya calificación
     if (rating !== undefined && rating !== null && rating !== '') {
       const reclutador = req.user?.nombre || 'Reclutador';
-      const etapaStr   = etapa || 'POSTULADO';
       const partes     = [`⭐ ${Number(rating)}/5`];
       if (nota && String(nota).trim()) partes.push(String(nota).trim());
       partes.push(reclutador);
-      partes.push(`Etapa: ${etapaStr}`);
       const userId = await resolveUserId(req.params.candidateId, vacancyId);
       if (userId) {
         bizneoService.addCandidateNote(userId, partes.join(' — '))
@@ -146,7 +151,7 @@ router.post('/candidatos/:candidateId/no-continua', async (req, res) => {
     // 2. Tag en Bizneo
     const userId = await resolveUserId(req.params.candidateId, vacancyId);
     if (userId) {
-      bizneoService.setCandidateStageTag(userId, 'NO CONTINÚA')
+      bizneoService.setCandidateStageTag(userId, 'NO_CONTINUA')
         .catch(e => console.warn('[Bizneo] no-continua tag:', e.message));
     }
 

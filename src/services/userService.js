@@ -114,4 +114,27 @@ async function seedDefaultUsers() {
   }
 }
 
-module.exports = { getUserByEmail, updatePasswordHash, addUser, seedDefaultUsers };
+// Genera o actualiza el hash de todo usuario que tenga password en texto plano sin hash válido
+async function syncPasswordHashes() {
+  try {
+    await _ensureSheet();
+    const all = await _getAll();
+    let synced = 0;
+    for (const user of all) {
+      if (!user.password) continue;
+      const needsHash = !user.password_hash ||
+        !(await bcrypt.compare(user.password, user.password_hash));
+      if (needsHash) {
+        const hash = await bcrypt.hash(user.password, 10);
+        await updatePasswordHash(user.email, hash);
+        synced++;
+        console.log(`  [Auth] Hash generado: ${user.email}`);
+      }
+    }
+    if (synced === 0) console.log('  [Auth] Hashes al día ✓');
+  } catch (e) {
+    console.warn('  [Auth] Error sincronizando hashes:', e.message);
+  }
+}
+
+module.exports = { getUserByEmail, updatePasswordHash, addUser, seedDefaultUsers, syncPasswordHashes };

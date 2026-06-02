@@ -984,7 +984,7 @@ document.getElementById('candidates-panel').addEventListener('click', e => {
   const promote = e.target.closest('.btn-promote');
   if (promote) {
     const { cid, vid, stage, nombre, email, telefono, ciudad, edad } = promote.dataset;
-    promoteCandidate(cid, vid, stage, { nombre, email, telefono, ciudad, edad, vacanteName: currentVacancy?.title || '' });
+    promoteCandidate(cid, vid, stage, { nombre, email, telefono, ciudad, edad, vacanteName: currentVacancy?.title || '' }, promote);
     return;
   }
 
@@ -992,7 +992,7 @@ document.getElementById('candidates-panel').addEventListener('click', e => {
   const demote = e.target.closest('.btn-demote');
   if (demote) {
     const { cid, vid, stage, nombre, email, telefono, ciudad, edad } = demote.dataset;
-    promoteCandidate(cid, vid, stage, { nombre, email, telefono, ciudad, edad, vacanteName: currentVacancy?.title || '' });
+    promoteCandidate(cid, vid, stage, { nombre, email, telefono, ciudad, edad, vacanteName: currentVacancy?.title || '' }, demote);
     return;
   }
 
@@ -1070,7 +1070,9 @@ function debounceRating(cid, vid, rating, nota) {
   }, 800);
 }
 
-async function promoteCandidate(cid, vid, stage, basicData) {
+async function promoteCandidate(cid, vid, stage, basicData, btn) {
+  const origText = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   try {
     const res  = await fetch(`${API}/sheets/candidatos/${cid}/stage`, {
       method:  'PATCH',
@@ -1095,6 +1097,7 @@ async function promoteCandidate(cid, vid, stage, basicData) {
     showToast(`Candidato movido a ${label}${biz}`, 'success');
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
   }
 }
 
@@ -1534,7 +1537,10 @@ function updateLogoForTheme(theme) {
   const img = document.querySelector('.logo-img');
   if (!img) return;
   const src = theme === 'light' ? '/logo.oscuro.png' : '/logo.claro.png';
-  if (img.src !== src) img.src = src;
+  img.style.display = '';
+  const fallback = img.nextElementSibling;
+  if (fallback) fallback.style.display = 'none';
+  img.src = src;
 }
 
 (function initTheme() {

@@ -12,9 +12,11 @@ app.listen(PORT, async () => {
   console.log(`\n  MTD Reclutamiento corriendo en http://localhost:${PORT}`);
   console.log(`  Ambiente: ${process.env.NODE_ENV || 'development'}`);
 
-  // Sembrar usuarios y clasificaciones por defecto
-  userService.seedDefaultUsers().catch(() => {});
+  // Sembrar usuarios, sincronizar hashes y clasificaciones
+  await userService.seedDefaultUsers().catch(() => {});
+  await userService.syncPasswordHashes().catch(() => {});
   sheetsService.ensureClasificacionesSheet().catch(() => {});
+  sheetsService.setupSheetsFormatting().catch(e => console.warn('  [Sheets] Formato:', e.message));
 
   // Cargar IDs de etiquetas Bizneo (POSTULADO / PRESELECCIONADO / FINALISTA)
   bizneoService.loadStageTags().catch(() => {});

@@ -570,9 +570,7 @@ RESPONDE SOLO con este JSON (sin texto extra, sin \`\`\`):
 }
 
 module.exports = {
-  extractTextFromBuffer,
   downloadAndExtractCV,
-  parseCVHeuristic,
   parseCVWithLLM,
   scoreMatchWithVacancy,
   stripHtml,

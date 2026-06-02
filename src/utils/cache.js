@@ -20,11 +20,4 @@ function del(key) {
   store.delete(key);
 }
 
-function info() {
-  return [...store.entries()].map(([key, entry]) => ({
-    key,
-    expiresIn: Math.max(0, Math.round((entry.expiresAt - Date.now()) / 1000)),
-  }));
-}
-
-module.exports = { get, set, del, info };
+module.exports = { get, set, del };
