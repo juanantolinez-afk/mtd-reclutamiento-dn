@@ -28,13 +28,20 @@ async function downloadAndExtractCV(url) {
   const contentType = (response.headers['content-type'] || '').toLowerCase();
   const rawName     = url.split('?')[0].split('/').pop().toLowerCase();
 
+  // Detectar DOCX por magic bytes (PK ZIP) como fallback cuando content-type o nombre no lo indican
+  const isZipMagic = buffer.length >= 4 &&
+    buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04;
+
   const isDocx = contentType.includes('wordprocessingml') ||
                  contentType.includes('msword') ||
                  rawName.endsWith('.docx') ||
-                 rawName.endsWith('.doc');
+                 rawName.endsWith('.doc') ||
+                 isZipMagic;
+
+  console.log(`[CV] url=...${url.slice(-40)} ct="${contentType}" name="${rawName}" bufferKB=${Math.round(buffer.length/1024)} isDocx=${isDocx} zipMagic=${isZipMagic}`);
 
   if (isDocx) {
-    const isOldDoc = rawName.endsWith('.doc') && !rawName.endsWith('.docx');
+    const isOldDoc = rawName.endsWith('.doc') && !rawName.endsWith('.docx') && !isZipMagic;
     const wordMime = isOldDoc
       ? 'application/msword'
       : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -61,10 +68,12 @@ async function downloadAndExtractCV(url) {
         if (result.value && result.value.trim().length > 30) text = result.value;
       } catch (_) {}
     }
+    console.log(`[CV] DOCX extraído: ${text.trim().length} chars`);
     return { text, buffer, wordMime };
   }
 
   const text = await extractTextFromBuffer(buffer);
+  console.log(`[CV] PDF extraído: ${text.trim().length} chars`);
   return { text, buffer, wordMime: null };
 }
 
@@ -491,8 +500,16 @@ async function parseCVWithLLM(cvInput) {
   const isObj = cvInput && typeof cvInput === 'object' && !Buffer.isBuffer(cvInput);
   const text  = isObj ? (cvInput.text || '') : (cvInput || '');
 
-  if (!process.env.OPENROUTER_API_KEY) return null;
-  if (text.trim().length <= 100) return null;
+  console.log(`[LLM] parseCVWithLLM: apiKey=${!!process.env.OPENROUTER_API_KEY}, textLen=${text.trim().length}, model=${process.env.OPENROUTER_MODEL || '(default)'}`);
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    console.warn('[LLM] OPENROUTER_API_KEY no configurada — saltando IA');
+    return { _llm_error: true, _reason: 'OPENROUTER_API_KEY no configurada', _via_llm: false };
+  }
+  if (text.trim().length <= 100) {
+    console.warn(`[LLM] Texto demasiado corto (${text.trim().length} chars) — PDF sin texto extraíble`);
+    return null;
+  }
 
   try {
     const raw = await callOpenRouter(text);
