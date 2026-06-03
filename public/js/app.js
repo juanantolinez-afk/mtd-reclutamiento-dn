@@ -1450,7 +1450,8 @@ function startSSEProcessing() {
   };
 
   activeSSE.onerror = () => {
-    if (activeSSE?.readyState === EventSource.CLOSED) return;
+    if (!activeSSE) return; // ya fue cerrado por done/error
+    if (activeSSE.readyState === EventSource.CLOSED) return;
     progressLbl.textContent = 'Conexión perdida';
     btn.disabled    = false;
     btn.textContent = '⚡ Reintentar';

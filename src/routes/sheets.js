@@ -96,7 +96,8 @@ router.patch('/candidatos/:candidateId/stage', async (req, res) => {
         if (saved?.calificacion_reclutador) noteParts.push(`⭐ ${saved.calificacion_reclutador}/5`);
         if (saved?.nota_reclutador?.trim()) noteParts.push(saved.nota_reclutador.trim());
         noteParts.push(reclutador);
-        bizneoService.addCandidateNote(userId, noteParts.join(' — ')).catch(() => {});
+        const noteRes = await bizneoService.addCandidateNote(userId, noteParts.join(' — '));
+        if (!noteRes.ok) console.warn(`[Bizneo] nota stage falló para userId=${userId}, HTTP ${noteRes.status}`);
       }
     }
 
@@ -123,9 +124,11 @@ router.patch('/candidatos/:candidateId/rating', async (req, res) => {
       if (nota && String(nota).trim()) partes.push(String(nota).trim());
       partes.push(reclutador);
       const userId = await resolveUserId(req.params.candidateId, vacancyId);
-      if (userId) {
-        bizneoService.addCandidateNote(userId, partes.join(' — '))
-          .catch(e => console.warn('[Bizneo] nota calificación:', e.message));
+      if (!userId) {
+        console.warn(`[Bizneo] nota calificación: userId no resuelto para candidato ${req.params.candidateId}`);
+      } else {
+        const noteRes = await bizneoService.addCandidateNote(userId, partes.join(' — '));
+        if (!noteRes.ok) console.warn(`[Bizneo] nota calificación falló userId=${userId}, HTTP ${noteRes.status}`);
       }
     }
 

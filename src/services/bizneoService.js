@@ -103,7 +103,8 @@ async function addCandidateNote(userId, message) {
 
 async function setCandidateStageTag(userId, newStage) {
   try {
-    await client.patch(`/candidates/${userId}/company_tags`, { company_tag: { names: [] } });
+    const patchRes = await client.patch(`/candidates/${userId}/company_tags`, {});
+    console.log(`[Bizneo] PATCH company_tags → HTTP ${patchRes.status}`);
     const r = await client.put(`/candidates/${userId}/company_tags/add_company_tags_by_name`, {
       company_tag: { names: [newStage] },
     });

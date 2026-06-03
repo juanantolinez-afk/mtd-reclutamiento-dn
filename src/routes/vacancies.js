@@ -297,6 +297,9 @@ router.get('/:id/procesar', async (req, res) => {
             } else if (llmData?._via_llm) {
               send({ type: 'progress', index: i + 1, step: 'Analizado con IA ✓' });
               cvStatus = 'leido_ia';
+            } else if (llmData?._llm_error) {
+              cvStatus = `error: ${(llmData._reason || 'error IA').slice(0, 60)}`;
+              llmData  = null;
             } else {
               cvStatus = 'sin_procesar: sin texto suficiente';
               llmData  = null;
