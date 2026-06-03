@@ -89,14 +89,31 @@ router.post('/login', async (req, res) => {
   }
 });
 
+const _GOOGLE_NET_ERRORS = new Set(['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNABORTED', 'EAI_AGAIN', 'EPIPE']);
+
 async function _verifyGoogleCredential(credential) {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   if (!credential || !clientId) throw new Error('Google OAuth no configurado');
-  const client  = new OAuth2Client(clientId);
-  const ticket  = await client.verifyIdToken({ idToken: credential, audience: clientId });
-  const payload = ticket.getPayload();
-  if (!payload.email_verified) throw new Error('Email de Google no verificado');
-  return (payload.email || '').toLowerCase();
+  const client = new OAuth2Client(clientId);
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const ticket  = await client.verifyIdToken({ idToken: credential, audience: clientId });
+      const payload = ticket.getPayload();
+      if (!payload.email_verified) throw new Error('Email de Google no verificado');
+      return (payload.email || '').toLowerCase();
+    } catch (e) {
+      const isNet = _GOOGLE_NET_ERRORS.has(e.code || '') ||
+                    (e.message || '').toLowerCase().includes('timeout') ||
+                    (e.message || '').toLowerCase().includes('network') ||
+                    (e.message || '').toLowerCase().includes('econnreset');
+      if (isNet && attempt < 3) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 // POST /api/auth/google — Login con Google OAuth (llamada JSON desde frontend)

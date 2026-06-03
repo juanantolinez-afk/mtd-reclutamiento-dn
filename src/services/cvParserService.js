@@ -442,26 +442,21 @@ RESPONDE SOLO con este JSON (sin texto extra, sin \`\`\`json):
   "age": number|null
 }`;
 
-const NETWORK_ERRORS = new Set(['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNABORTED', 'EPIPE']);
+const NETWORK_ERRORS = new Set(['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNABORTED', 'EPIPE', 'EAI_AGAIN']);
+const FALLBACK_MODEL  = 'openai/gpt-4o-mini';
 
-async function callOpenRouter(cvText) {
+// ─── Helper de request a OpenRouter con reintentos ────────────────────────────
+
+async function _openRouterPost(model, messages, { maxTokens = 4096, timeoutMs = 60000 } = {}) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) return null;
-  const model    = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
-  const mdText   = preprocessToMarkdown(cvText);
-  const truncated = mdText.slice(0, 12000);
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await axios.post(
         'https://openrouter.ai/api/v1/chat/completions',
-        {
-          model,
-          messages: [{ role: 'user', content: `${CV_PROMPT}\n\nHOJA DE VIDA:\n${truncated}` }],
-          temperature: 0.1,
-          max_tokens: 4096,
-        },
-        { headers: { 'Authorization': `Bearer ${apiKey}` }, timeout: 60000 }
+        { model, messages, temperature: 0.1, max_tokens: maxTokens },
+        { headers: { Authorization: `Bearer ${apiKey}` }, timeout: timeoutMs }
       );
       return res.data?.choices?.[0]?.message?.content || '';
     } catch (e) {
@@ -474,14 +469,40 @@ async function callOpenRouter(cvText) {
         const retryAfter = meta?.retry_after_seconds;
         const waitMs = is429
           ? (retryAfter ? Math.ceil(retryAfter) * 1000 + 2000 : 20000)
-          : 5000;
-        console.warn(`[OpenRouter] intento ${attempt} — ${is429 ? '429' : 'red'} — esperando ${Math.round(waitMs/1000)}s`);
+          : 5000 * attempt;
+        console.warn(`[OpenRouter] intento ${attempt}/3 — ${is429 ? '429' : 'red'} — ${model} — esperando ${Math.round(waitMs / 1000)}s`);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
       throw e;
     }
   }
+}
+
+// Si el modelo primario falla con error no-429/no-red, intenta con el fallback
+async function _openRouterWithFallback(primaryModel, messages, opts = {}) {
+  try {
+    return await _openRouterPost(primaryModel, messages, opts);
+  } catch (e) {
+    const fallback = process.env.OPENROUTER_FALLBACK_MODEL || FALLBACK_MODEL;
+    if (fallback && fallback !== primaryModel) {
+      console.warn(`[OpenRouter] modelo principal falló (${e.response?.status || e.code || e.message?.slice(0, 40)}), usando fallback: ${fallback}`);
+      return await _openRouterPost(fallback, messages, opts);
+    }
+    throw e;
+  }
+}
+
+async function callOpenRouter(cvText) {
+  if (!process.env.OPENROUTER_API_KEY) return null;
+  const model     = process.env.OPENROUTER_MODEL || FALLBACK_MODEL;
+  const mdText    = preprocessToMarkdown(cvText);
+  const truncated = mdText.slice(0, 12000);
+  return _openRouterWithFallback(
+    model,
+    [{ role: 'user', content: `${CV_PROMPT}\n\nHOJA DE VIDA:\n${truncated}` }],
+    { maxTokens: 4096, timeoutMs: 60000 }
+  );
 }
 
 // ─── Parser principal ─────────────────────────────────────────────────────────
@@ -517,7 +538,7 @@ function stripHtml(html) {
 }
 
 // Evalúa qué tan bien un candidato encaja con la descripción de la vacante
-// Devuelve un número 0-100 o null si no se puede evaluar
+// Devuelve { score: 0-100, explicacion } o null si no se puede evaluar
 async function scoreMatchWithVacancy(candidateProfile, vacancyDescription) {
   if (!process.env.OPENROUTER_API_KEY) return null;
   if (!vacancyDescription || vacancyDescription.trim().length < 80) return null;
@@ -551,14 +572,13 @@ RESPONDE SOLO con este JSON (sin texto extra, sin \`\`\`):
 {"score": number, "explicacion": "Una o dos frases específicas que expliquen el puntaje: qué cumple y qué falta del candidato respecto a la vacante."}`;
 
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    const model  = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
-    const res = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
-      { model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 200 },
-      { headers: { 'Authorization': `Bearer ${apiKey}` }, timeout: 30000 }
+    const model = process.env.OPENROUTER_MODEL || FALLBACK_MODEL;
+    const raw   = await _openRouterWithFallback(
+      model,
+      [{ role: 'user', content: prompt }],
+      { maxTokens: 200, timeoutMs: 30000 }
     );
-    const raw    = res.data?.choices?.[0]?.message?.content || '';
+    if (!raw) return null;
     const clean  = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(clean);
     const score  = parseInt(parsed.score);
