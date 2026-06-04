@@ -1,27 +1,27 @@
 // Desarrollado por donangeel · 2026
-const { google } = require('googleapis');
-const bcrypt     = require('bcryptjs');
+const { google }             = require('googleapis');
+const bcrypt                 = require('bcryptjs');
+const { getGoogleAccessToken } = require('../utils/googleAuth');
 
 const USERS_SHEET  = 'MTD_Usuarios';
-// Columnas: nombre | email | password | password_hash | rol | activo
 const USER_HEADERS = ['nombre', 'email', 'password', 'password_hash', 'rol', 'activo'];
 const USER_LAST    = 'F';
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
 let _ensured = false;
 
-function _auth() {
-  return new google.auth.JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL,
-    key:   (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+async function _client() {
+  const token = await getGoogleAccessToken(SHEETS_SCOPE);
+  const auth  = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: token });
+  return google.sheets({ version: 'v4', auth });
 }
-const _client = () => google.sheets({ version: 'v4', auth: _auth() });
-const _sid    = () => process.env.GOOGLE_SPREADSHEET_ID;
+
+const _sid = () => process.env.GOOGLE_SPREADSHEET_ID;
 
 async function _ensureSheet() {
   if (_ensured) return;
-  const sheets = _client();
+  const sheets = await _client();
   const sid    = _sid();
 
   const meta   = await sheets.spreadsheets.get({ spreadsheetId: sid });
@@ -50,15 +50,16 @@ async function _ensureSheet() {
 
 async function _getAll() {
   await _ensureSheet();
-  const res = await _client().spreadsheets.values.get({
+  const sheets = await _client();
+  const res    = await sheets.spreadsheets.values.get({
     spreadsheetId: _sid(),
     range: `${USERS_SHEET}!A2:${USER_LAST}`,
   });
   return (res.data.values || []).map((r, i) => ({
-    _row:          i + 2,          // fila en Sheets (para updates)
+    _row:          i + 2,
     nombre:        r[0] || '',
     email:         (r[1] || '').toLowerCase().trim(),
-    password:      r[2] || '',     // plain text — visible para admin en Sheets
+    password:      r[2] || '',
     password_hash: r[3] || '',
     rol:           r[4] || 'reclutador',
     activo:        r[5] !== 'false',
@@ -70,14 +71,14 @@ async function getUserByEmail(email) {
   return all.find(u => u.email === (email || '').toLowerCase().trim()) || null;
 }
 
-// Actualiza el hash en la columna D cuando admin cambió el password plain text
 async function updatePasswordHash(email, newHash) {
   const all  = await _getAll();
   const user = all.find(u => u.email === (email || '').toLowerCase().trim());
   if (!user) return;
-  await _client().spreadsheets.values.update({
-    spreadsheetId:   _sid(),
-    range:           `${USERS_SHEET}!D${user._row}`,
+  const sheets = await _client();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId:    _sid(),
+    range:            `${USERS_SHEET}!D${user._row}`,
     valueInputOption: 'RAW',
     requestBody: { values: [[newHash]] },
   });
@@ -85,8 +86,9 @@ async function updatePasswordHash(email, newHash) {
 
 async function addUser(nombre, email, password, rol = 'reclutador') {
   await _ensureSheet();
-  const hash = await bcrypt.hash(password, 10);
-  await _client().spreadsheets.values.append({
+  const hash   = await bcrypt.hash(password, 10);
+  const sheets = await _client();
+  await sheets.spreadsheets.values.append({
     spreadsheetId:    _sid(),
     range:            `${USERS_SHEET}!A1`,
     valueInputOption: 'RAW',
@@ -100,8 +102,8 @@ async function seedDefaultUsers() {
     await _ensureSheet();
     const existing = await _getAll();
     const defaults = [
-      { nombre: 'Administrador MTD',  email: 'admin@mtd.net.co',           password: 'Admin2026!',  rol: 'admin'      },
-      { nombre: 'Juan Antolinez',     email: 'juan.antolinez@mtd.net.co',  password: 'MTD2026!',    rol: 'reclutador' },
+      { nombre: 'Administrador MTD', email: 'admin@mtd.net.co',          password: 'Admin2026!', rol: 'admin'      },
+      { nombre: 'Juan Antolinez',    email: 'juan.antolinez@mtd.net.co', password: 'MTD2026!',   rol: 'reclutador' },
     ];
     for (const u of defaults) {
       if (!existing.find(x => x.email === u.email)) {
@@ -114,7 +116,6 @@ async function seedDefaultUsers() {
   }
 }
 
-// Genera o actualiza el hash de todo usuario que tenga password en texto plano sin hash válido
 async function syncPasswordHashes() {
   try {
     await _ensureSheet();

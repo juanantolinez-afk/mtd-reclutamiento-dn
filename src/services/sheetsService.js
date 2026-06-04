@@ -1,6 +1,5 @@
-const { google } = require('googleapis');
-const forge      = require('node-forge');
-const axios      = require('axios');
+const { google }             = require('googleapis');
+const { getGoogleAccessToken } = require('../utils/googleAuth');
 
 const SHEET_NAME = 'MTD_Candidatos';
 
@@ -20,45 +19,10 @@ const LAST_COL = 'Z';
 
 let _ensured = false;
 
-// ── Autenticación con node-forge (evita OpenSSL 3) ────────────────────────────
-
-let _tokenCache = { token: null, expiry: 0 };
-
-async function _getGoogleAccessToken() {
-  if (_tokenCache.token && Date.now() < _tokenCache.expiry - 60000) return _tokenCache.token;
-
-  const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
-  const rawKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-  const now    = Math.floor(Date.now() / 1000);
-
-  const hdr = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const pay = Buffer.from(JSON.stringify({
-    iss: email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now,
-  })).toString('base64url');
-
-  const data = `${hdr}.${pay}`;
-  const pk   = forge.pki.privateKeyFromPem(rawKey);
-  const md   = forge.md.sha256.create();
-  md.update(data, 'utf8');
-  const sig  = Buffer.from(pk.sign(md), 'binary').toString('base64url');
-
-  const res = await axios.post(
-    'https://oauth2.googleapis.com/token',
-    `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${data}.${sig}`,
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  );
-
-  _tokenCache.token  = res.data.access_token;
-  _tokenCache.expiry = Date.now() + res.data.expires_in * 1000;
-  return _tokenCache.token;
-}
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
 async function _client() {
-  const token = await _getGoogleAccessToken();
+  const token = await getGoogleAccessToken(SHEETS_SCOPE);
   const auth  = new google.auth.OAuth2();
   auth.setCredentials({ access_token: token });
   return google.sheets({ version: 'v4', auth });
