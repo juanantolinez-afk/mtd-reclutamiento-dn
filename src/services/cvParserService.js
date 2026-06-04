@@ -453,26 +453,23 @@ RESPONDE SOLO con este JSON (sin texto extra, sin \`\`\`json):
 
 const NETWORK_ERRORS = new Set(['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNABORTED', 'EPIPE']);
 
-async function callOpenRouter(cvText) {
+async function callOpenRouterRaw(model, messages, { maxTokens = 4096, timeout = 60000 } = {}) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return null;
-  const model    = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
-  const mdText   = preprocessToMarkdown(cvText);
-  const truncated = mdText.slice(0, 12000);
-
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await axios.post(
         'https://openrouter.ai/api/v1/chat/completions',
+        { model, messages, temperature: 0.1, max_tokens: maxTokens },
         {
-          model,
-          messages: [{ role: 'user', content: `${CV_PROMPT}\n\nHOJA DE VIDA:\n${truncated}` }],
-          temperature: 0.1,
-          max_tokens: 4096,
-        },
-        { headers: { 'Authorization': `Bearer ${apiKey}` }, timeout: 60000 }
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'HTTP-Referer': 'https://recruitmentmtd.bonto.run',
+            'X-Title': 'MTD Reclutamiento',
+          },
+          timeout,
+        }
       );
-      return res.data?.choices?.[0]?.message?.content || '';
+      return res.data?.choices?.[0]?.message?.content || null;
     } catch (e) {
       const status = e.response?.status;
       const meta   = e.response?.data?.error?.metadata;
@@ -484,14 +481,39 @@ async function callOpenRouter(cvText) {
         const waitMs = is429
           ? (retryAfter ? Math.ceil(retryAfter) * 1000 + 2000 : 20000)
           : 5000;
-        console.warn(`[OpenRouter] intento ${attempt} — ${is429 ? '429' : 'red'} — esperando ${Math.round(waitMs/1000)}s`);
+        console.warn(`[OpenRouter] intento ${attempt} modelo="${model}" — ${is429 ? '429' : 'red'} — esperando ${Math.round(waitMs/1000)}s`);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
-      console.error(`[OpenRouter] HTTP ${status || 'err'} modelo="${model}":`, errMsg.slice(0, 120));
+      console.error(`[OpenRouter] HTTP ${status || 'err'} modelo="${model}":`, errMsg.slice(0, 200));
       throw e;
     }
   }
+  return null;
+}
+
+async function callWithFallback(messages, options = {}) {
+  if (!process.env.OPENROUTER_API_KEY) return null;
+  const primary  = process.env.OPENROUTER_MODEL          || 'meta-llama/llama-3.3-70b-instruct:free';
+  const fallback = process.env.OPENROUTER_FALLBACK_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
+
+  try {
+    const content = await callOpenRouterRaw(primary, messages, options);
+    if (content) return content;
+  } catch (e) {
+    const status = e.response?.status;
+    if (status === 401 || primary === fallback) throw e;
+    console.warn(`[OpenRouter] modelo "${primary}" falló (HTTP ${status || e.code}), usando fallback "${fallback}"`);
+    return callOpenRouterRaw(fallback, messages, options);
+  }
+  return null;
+}
+
+async function callOpenRouter(cvText) {
+  const mdText    = preprocessToMarkdown(cvText);
+  const truncated = mdText.slice(0, 12000);
+  const messages  = [{ role: 'user', content: `${CV_PROMPT}\n\nHOJA DE VIDA:\n${truncated}` }];
+  return callWithFallback(messages, { maxTokens: 4096, timeout: 60000 });
 }
 
 // ─── Parser principal ─────────────────────────────────────────────────────────
@@ -570,15 +592,9 @@ RESPONDE SOLO con este JSON (sin texto extra, sin \`\`\`):
 {"score": number, "explicacion": "Una o dos frases específicas que expliquen el puntaje: qué cumple y qué falta del candidato respecto a la vacante."}`;
 
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    const model  = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
-    const res = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
-      { model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 200 },
-      { headers: { 'Authorization': `Bearer ${apiKey}` }, timeout: 30000 }
-    );
-    const raw    = res.data?.choices?.[0]?.message?.content || '';
-    const clean  = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const raw    = await callWithFallback([{ role: 'user', content: prompt }], { maxTokens: 200, timeout: 30000 });
+    if (!raw) return null;
+    const clean  = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(clean);
     const score  = parseInt(parsed.score);
     if (isNaN(score)) return null;
