@@ -1,4 +1,6 @@
 const { google } = require('googleapis');
+const forge      = require('node-forge');
+const axios      = require('axios');
 
 const SHEET_NAME = 'MTD_Candidatos';
 
@@ -18,28 +20,59 @@ const LAST_COL = 'Z';
 
 let _ensured = false;
 
-function _getAuth() {
-  const raw = process.env.GOOGLE_PRIVATE_KEY || '';
-  const key = raw.replace(/\\n/g, '\n');
-  console.log(`[Sheets] key_lines=${key.split('\n').length} starts_correctly=${key.startsWith('-----BEGIN')} raw_len=${raw.length}`);
-  return new google.auth.JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL,
-    key,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+// ── Autenticación con node-forge (evita OpenSSL 3) ────────────────────────────
+
+let _tokenCache = { token: null, expiry: 0 };
+
+async function _getGoogleAccessToken() {
+  if (_tokenCache.token && Date.now() < _tokenCache.expiry - 60000) return _tokenCache.token;
+
+  const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
+  const rawKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  const now    = Math.floor(Date.now() / 1000);
+
+  const hdr = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const pay = Buffer.from(JSON.stringify({
+    iss: email,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  })).toString('base64url');
+
+  const data = `${hdr}.${pay}`;
+  const pk   = forge.pki.privateKeyFromPem(rawKey);
+  const md   = forge.md.sha256.create();
+  md.update(data, 'utf8');
+  const sig  = Buffer.from(pk.sign(md), 'binary').toString('base64url');
+
+  const res = await axios.post(
+    'https://oauth2.googleapis.com/token',
+    `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${data}.${sig}`,
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+
+  _tokenCache.token  = res.data.access_token;
+  _tokenCache.expiry = Date.now() + res.data.expires_in * 1000;
+  return _tokenCache.token;
 }
 
-function _client() {
-  return google.sheets({ version: 'v4', auth: _getAuth() });
+async function _client() {
+  const token = await _getGoogleAccessToken();
+  const auth  = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: token });
+  return google.sheets({ version: 'v4', auth });
 }
 
 function _sid() {
   return process.env.GOOGLE_SPREADSHEET_ID;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function ensureSheet() {
   if (_ensured) return;
-  const sheets = _client();
+  const sheets = await _client();
   const spreadsheetId = _sid();
 
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
@@ -75,7 +108,7 @@ async function _ensureOnce() {
 }
 
 async function _getAllRows() {
-  const sheets = _client();
+  const sheets = await _client();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: _sid(),
     range: `${SHEET_NAME}!A2:${LAST_COL}`,
@@ -109,7 +142,7 @@ async function getCandidateById(candidatoId, vacanteId) {
 
 async function upsertCandidate(data) {
   await _ensureOnce();
-  const sheets = _client();
+  const sheets = await _client();
   const spreadsheetId = _sid();
   const rows = await _getAllRows();
 
@@ -146,7 +179,7 @@ async function upsertCandidate(data) {
 
 async function updateFields(candidatoId, vacanteId, updates) {
   await _ensureOnce();
-  const sheets = _client();
+  const sheets = await _client();
   const spreadsheetId = _sid();
   const rows = await _getAllRows();
 
@@ -176,7 +209,7 @@ async function updateFields(candidatoId, vacanteId, updates) {
 }
 
 async function getSpreadsheetInfo() {
-  const sheets = _client();
+  const sheets = await _client();
   const res = await sheets.spreadsheets.get({ spreadsheetId: _sid() });
   return {
     title:  res.data.properties.title,
@@ -213,7 +246,8 @@ let _globalEnsured   = false;
 
 async function _ensureGlobalSheet() {
   if (_globalEnsured) return;
-  const sheets = _client(), sid = _sid();
+  const sheets = await _client();
+  const sid    = _sid();
   const meta   = await sheets.spreadsheets.get({ spreadsheetId: sid });
   if (!meta.data.sheets.some(s => s.properties.title === GLOBAL_SHEET)) {
     await sheets.spreadsheets.batchUpdate({
@@ -236,11 +270,12 @@ async function _ensureGlobalSheet() {
 
 async function upsertGlobalCandidate(data) {
   await _ensureGlobalSheet();
-  const sheets = _client(), sid = _sid();
-  const res  = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: `${GLOBAL_SHEET}!A2:${GLOBAL_LAST}` });
-  const rows = res.data.values || [];
-  const idx  = rows.findIndex(r => r[GLOBAL_COL.candidato_id] === String(data.candidato_id));
-  const RANK = { PRESELECCIONADO: 1, FINALISTA: 2 };
+  const sheets = await _client();
+  const sid    = _sid();
+  const res    = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: `${GLOBAL_SHEET}!A2:${GLOBAL_LAST}` });
+  const rows   = res.data.values || [];
+  const idx    = rows.findIndex(r => r[GLOBAL_COL.candidato_id] === String(data.candidato_id));
+  const RANK   = { PRESELECCIONADO: 1, FINALISTA: 2 };
   if (idx !== -1 && (RANK[rows[idx][GLOBAL_COL.etapa]] || 0) >= (RANK[data.etapa] || 0)) return;
   const row = GLOBAL_HEADERS.map(h => String(data[h] || ''));
   if (idx === -1) {
@@ -259,8 +294,9 @@ async function upsertGlobalCandidate(data) {
 
 async function getAllGlobalCandidates() {
   await _ensureGlobalSheet();
-  const res  = await _client().spreadsheets.values.get({ spreadsheetId: _sid(), range: `${GLOBAL_SHEET}!A2:${GLOBAL_LAST}` });
-  const map  = new Map();
+  const sheets = await _client();
+  const res    = await sheets.spreadsheets.values.get({ spreadsheetId: _sid(), range: `${GLOBAL_SHEET}!A2:${GLOBAL_LAST}` });
+  const map    = new Map();
   for (const row of (res.data.values || [])) {
     const cid = String(row[GLOBAL_COL.candidato_id] || '');
     if (cid) map.set(cid, {
@@ -289,8 +325,9 @@ const CLF_DEFAULTS = [
 
 async function ensureClasificacionesSheet() {
   if (_clfEnsured) return;
-  const sheets = _client(), sid = _sid();
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: sid });
+  const sheets = await _client();
+  const sid    = _sid();
+  const meta   = await sheets.spreadsheets.get({ spreadsheetId: sid });
   if (!meta.data.sheets.some(s => s.properties.title === CLF_SHEET)) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: sid,
@@ -310,15 +347,16 @@ async function ensureClasificacionesSheet() {
 
 async function getClasificaciones() {
   await ensureClasificacionesSheet();
-  const res = await _client().spreadsheets.values.get({ spreadsheetId: _sid(), range: `${CLF_SHEET}!A2:F` });
+  const sheets = await _client();
+  const res    = await sheets.spreadsheets.values.get({ spreadsheetId: _sid(), range: `${CLF_SHEET}!A2:F` });
   return (res.data.values || [])
     .filter(r => r[5] !== 'false')
     .map(r => ({
-      codigo:        r[0] || '',
+      codigo:         r[0] || '',
       nombre_display: r[1] || r[0] || '',
-      descripcion:   r[2] || '',
-      umbral_min:    parseInt(r[3]) || 0,
-      umbral_max:    parseInt(r[4]) || 60,
+      descripcion:    r[2] || '',
+      umbral_min:     parseInt(r[3]) || 0,
+      umbral_max:     parseInt(r[4]) || 60,
     }));
 }
 
@@ -327,7 +365,7 @@ async function getClasificaciones() {
 const GUIDE_SHEET = '📘 Guía';
 
 async function setupSheetsFormatting() {
-  const sheets = _client();
+  const sheets = await _client();
   const sid    = _sid();
 
   const meta     = await sheets.spreadsheets.get({ spreadsheetId: sid });
@@ -344,14 +382,12 @@ async function setupSheetsFormatting() {
   // Formatear encabezado de MTD_Candidatos
   const mainId = sheetMap[SHEET_NAME];
   if (mainId !== undefined) {
-    // Fila 1 fija
     requests.push({
       updateSheetProperties: {
         properties: { sheetId: mainId, gridProperties: { frozenRowCount: 1 } },
         fields: 'gridProperties.frozenRowCount',
       },
     });
-    // Encabezado azul MTD, texto blanco y negrita
     requests.push({
       repeatCell: {
         range: { sheetId: mainId, startRowIndex: 0, endRowIndex: 1 },
@@ -365,7 +401,6 @@ async function setupSheetsFormatting() {
         fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
       },
     });
-    // Anchos de columna legibles
     const widths = [90,80,160,180,110,90,55,55,90,160,160,55,160,120,105,90,200,60,90,90,160,160,80,90,90,60];
     widths.forEach((w, i) => {
       requests.push({
@@ -440,7 +475,7 @@ async function setupSheetsFormatting() {
     ['telefono', 'Teléfono de contacto.', '3001234567'],
     ['ciudad', 'Ciudad de residencia.', 'Bogotá'],
     ['edad', 'Edad calculada por IA desde el CV.', '28'],
-    ['score', 'Puntaje IA de compatibilidad con la vacante (0–60). Si la vacante no tiene descripción, queda vacío.', '45'],
+    ['score', 'Puntaje IA de compatibilidad con la vacante (0–60).', '45'],
     ['clasificacion', 'Nivel del candidato según su score de completitud.', 'COMPLETO / REVISAR / INCOMPLETO'],
     ['formacion', 'Historial académico procesado por IA. Formato JSON — no editar.', '[{"nivel":"pregrado",...}]'],
     ['experiencia', 'Historial laboral procesado por IA. Formato JSON — no editar.', '[{"empresa":"...",...}]'],
@@ -453,17 +488,17 @@ async function setupSheetsFormatting() {
     ['procesado_ia', 'Indica si el CV fue analizado por IA. No editar.', 'true / false'],
     ['fecha_procesado', 'Fecha del último análisis IA. No editar.', '2026-06-02'],
     ['fecha_promovido', 'Fecha del último cambio de etapa.', '2026-06-02'],
-    ['breakdown', 'Detalle interno del score y explicación del LLM. Formato JSON — no editar.', '{"completitud":...}'],
+    ['breakdown', 'Detalle interno del score. Formato JSON — no editar.', '{"completitud":...}'],
     ['vacante_nombre', 'Nombre de la vacante a la que aplicó el candidato.', 'Auxiliar de Enfermería Bogotá'],
     ['user_id', 'ID de usuario Bizneo para sincronizar etiquetas. No editar.', '42094434'],
     ['fecha_postulacion', 'Fecha en que aplicó en Bizneo (dd/mm/aa).', '01/06/26'],
     ['fecha_entrevista', 'Fecha de entrevista agendada (dd/mm/aa).', '05/06/26'],
-    ['score_vacante', 'Puntaje de match con los requisitos específicos de la vacante (0–100). "N/A" si la vacante no tiene descripción.', '78'],
+    ['score_vacante', 'Puntaje de match con los requisitos de la vacante (0–100).', '78'],
     ['', '', ''],
     ['', '', ''],
     ['👥 MTD_Candidatos_Global — Registro global por candidato', '', ''],
     ['Guarda la etapa más avanzada que ha alcanzado cada candidato en cualquier vacante.', '', ''],
-    ['Sirve para detectar si un candidato ya está en proceso en otra vacante (indicador en la tabla).', '', ''],
+    ['Sirve para detectar si un candidato ya está en proceso en otra vacante.', '', ''],
     ['COLUMNA', 'DESCRIPCIÓN', ''],
     ['candidato_id', 'ID del candidato en Bizneo.', ''],
     ['nombre', 'Nombre completo.', ''],
@@ -476,7 +511,7 @@ async function setupSheetsFormatting() {
     ['', '', ''],
     ['', '', ''],
     ['🔐 MTD_Usuarios — Usuarios con acceso al sistema', '', ''],
-    ['⚠️ Para agregar un usuario: llena nombre, email, password (texto plano) y rol. El sistema genera el hash automáticamente al iniciar sesión.', '', ''],
+    ['⚠️ Para agregar un usuario: llena nombre, email, password (texto plano) y rol. El sistema genera el hash automáticamente.', '', ''],
     ['COLUMNA', 'DESCRIPCIÓN', 'VALORES'],
     ['nombre', 'Nombre completo del reclutador.', 'Juan Antolinez'],
     ['email', 'Correo con el que inicia sesión.', 'juan@mtd.net.co'],
@@ -505,15 +540,14 @@ async function setupSheetsFormatting() {
   });
 
   // Formatear la hoja guía
-  const guideMeta   = await sheets.spreadsheets.get({ spreadsheetId: sid });
+  const guideMeta    = await sheets.spreadsheets.get({ spreadsheetId: sid });
   const guideSheetId = guideMeta.data.sheets.find(s => s.properties.title === GUIDE_SHEET)?.properties?.sheetId;
 
   if (guideSheetId !== undefined) {
-    const sectionRows = [3, 33, 47, 57]; // filas de sección (0-indexed)
-    const headerRows  = [4, 36, 50, 60]; // filas de encabezado de tabla
+    const sectionRows = [3, 33, 47, 57];
+    const headerRows  = [4, 36, 50, 60];
     const fmtRequests = [];
 
-    // Título principal
     fmtRequests.push({
       repeatCell: {
         range: { sheetId: guideSheetId, startRowIndex: 0, endRowIndex: 1 },
@@ -521,8 +555,6 @@ async function setupSheetsFormatting() {
         fields: 'userEnteredFormat(textFormat,backgroundColor)',
       },
     });
-
-    // Subtítulo
     fmtRequests.push({
       repeatCell: {
         range: { sheetId: guideSheetId, startRowIndex: 1, endRowIndex: 2 },
@@ -531,7 +563,6 @@ async function setupSheetsFormatting() {
       },
     });
 
-    // Encabezados de sección (azul oscuro)
     for (const row of sectionRows) {
       fmtRequests.push({
         repeatCell: {
@@ -547,7 +578,6 @@ async function setupSheetsFormatting() {
       });
     }
 
-    // Encabezados de tabla (gris)
     for (const row of headerRows) {
       fmtRequests.push({
         repeatCell: {
@@ -563,7 +593,6 @@ async function setupSheetsFormatting() {
       });
     }
 
-    // Anchos de columna de la guía
     [[0, 220], [1, 500], [2, 280]].forEach(([i, w]) => {
       fmtRequests.push({
         updateDimensionProperties: {
@@ -574,7 +603,6 @@ async function setupSheetsFormatting() {
       });
     });
 
-    // Fila 1 fija
     fmtRequests.push({
       updateSheetProperties: {
         properties: { sheetId: guideSheetId, gridProperties: { frozenRowCount: 1 } },
