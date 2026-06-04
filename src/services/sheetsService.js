@@ -19,9 +19,12 @@ const LAST_COL = 'Z';
 let _ensured = false;
 
 function _getAuth() {
+  const raw = process.env.GOOGLE_PRIVATE_KEY || '';
+  const key = raw.replace(/\\n/g, '\n');
+  console.log(`[Sheets] key_lines=${key.split('\n').length} starts_correctly=${key.startsWith('-----BEGIN')} raw_len=${raw.length}`);
   return new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL,
-    key:   (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+    key,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 }
