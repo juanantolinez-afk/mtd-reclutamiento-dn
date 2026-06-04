@@ -152,7 +152,7 @@ router.post('/google/callback', express.urlencoded({ extended: true }), async (r
     res.redirect('/');
   } catch (err) {
     console.error('[Auth] Google callback:', err.message);
-    res.redirect(`/login?error=${encodeURIComponent('Error al verificar cuenta de Google')}`);
+    res.redirect(`/login?error=${encodeURIComponent('Google: ' + (err.message || 'error desconocido').slice(0, 120))}`);
   }
 });
 
