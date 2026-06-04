@@ -2,9 +2,9 @@ const express     = require('express');
 const router      = express.Router();
 const jwt         = require('jsonwebtoken');
 const bcrypt      = require('bcryptjs');
+const axios       = require('axios');
 const userService = require('../services/userService');
 const { updatePasswordHash } = userService;
-const { OAuth2Client } = require('google-auth-library');
 
 const JWT_SECRET  = process.env.JWT_SECRET || 'mtd-reclutamiento-2026-change-in-prod';
 const JWT_EXPIRES = '8h';
@@ -91,22 +91,27 @@ router.post('/login', async (req, res) => {
 
 const _GOOGLE_NET_ERRORS = new Set(['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNABORTED', 'EAI_AGAIN', 'EPIPE']);
 
+// Verifica el ID token de Google usando el endpoint tokeninfo de Google
+// (evita verificación local con OpenSSL, compatible con todos los entornos)
 async function _verifyGoogleCredential(credential) {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   if (!credential || !clientId) throw new Error('Google OAuth no configurado');
-  const client = new OAuth2Client(clientId);
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const ticket  = await client.verifyIdToken({ idToken: credential, audience: clientId });
-      const payload = ticket.getPayload();
-      if (!payload.email_verified) throw new Error('Email de Google no verificado');
-      return (payload.email || '').toLowerCase();
+      const res = await axios.get('https://oauth2.googleapis.com/tokeninfo', {
+        params:  { id_token: credential },
+        timeout: 10000,
+      });
+      const p = res.data;
+      if (p.aud !== clientId) throw new Error(`Token no corresponde a esta aplicación`);
+      if (!p.email_verified || p.email_verified === 'false') throw new Error('Email de Google no verificado');
+      if (Number(p.exp) * 1000 < Date.now()) throw new Error('Token de Google expirado');
+      return (p.email || '').toLowerCase();
     } catch (e) {
+      if (e.response?.status === 400) throw new Error('Token de Google inválido o expirado');
       const isNet = _GOOGLE_NET_ERRORS.has(e.code || '') ||
-                    (e.message || '').toLowerCase().includes('timeout') ||
-                    (e.message || '').toLowerCase().includes('network') ||
-                    (e.message || '').toLowerCase().includes('econnreset');
+                    (e.message || '').toLowerCase().includes('timeout');
       if (isNet && attempt < 3) {
         await new Promise(r => setTimeout(r, 2000 * attempt));
         continue;
@@ -152,7 +157,7 @@ router.post('/google/callback', express.urlencoded({ extended: true }), async (r
     res.redirect('/');
   } catch (err) {
     console.error('[Auth] Google callback:', err.message);
-    res.redirect(`/login?error=${encodeURIComponent('Google: ' + (err.message || 'error desconocido').slice(0, 120))}`);
+    res.redirect(`/login?error=${encodeURIComponent(err.message || 'Error al verificar cuenta de Google')}`);
   }
 });
 
