@@ -595,6 +595,8 @@ function _calendarBtn(c) {
 function _cvIcon(cvStatus) {
   if (cvStatus === 'leido_ia')
     return `<span class="cv-ia cv-ia-ok" title="Procesado por IA">✓ IA</span>`;
+  if (cvStatus === 'leido_heuristico')
+    return `<span class="cv-ia cv-ia-ok" title="Procesado con análisis local">✓ CV</span>`;
   if (!cvStatus || cvStatus === 'sin_cv')
     return `<span class="cv-ia cv-ia-off" title="Sin CV adjunto en Bizneo">○ Sin CV</span>`;
   if (cvStatus.startsWith('leido_ia')) // variantes
