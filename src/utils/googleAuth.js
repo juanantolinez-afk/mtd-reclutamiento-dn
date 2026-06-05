@@ -3,10 +3,9 @@ const axios = require('axios');
 
 const _cache = new Map();
 
-// Parsea un DER PKCS#8 RSA y devuelve un JWK con los componentes de la llave.
-// importKey('jwk', ...) construye la llave desde BIGNUMs directamente,
-// sin pasar por el DECODER framework de OpenSSL 3 que falla con ciertas llaves RSA
-// en Node.js 20 (tanto para pkcs8 DER como para PEM via createPrivateKey).
+// Parsea DER PKCS#8 RSA → JWK. importKey('jwk') construye la llave desde
+// BIGNUMs directamente, sin pasar por el DECODER de OpenSSL 3 que falla
+// en Node.js 20 con ciertos service account keys de Google.
 function pkcs8DerToJwk(buf) {
   let p = 0;
 
@@ -18,12 +17,8 @@ function pkcs8DerToJwk(buf) {
     return n;
   }
 
-  // Lee el tag, avanza p al inicio del VALUE, devuelve la longitud del VALUE
   function tag(t) {
-    if (buf[p] !== t) {
-      const ctx = Buffer.from(buf.slice(Math.max(0, p - 4), p + 12)).toString('hex');
-      throw new Error(`ASN.1: esperado 0x${t.toString(16)} en pos ${p}, encontrado 0x${buf[p].toString(16)} | ctx[-4..+12]: ${ctx} | derLen=${buf.length}`);
-    }
+    if (buf[p] !== t) throw new Error(`ASN.1 tag 0x${t.toString(16)} esperado en pos ${p}, encontrado 0x${buf[p].toString(16)}`);
     p++;
     return readLen();
   }
@@ -31,37 +26,40 @@ function pkcs8DerToJwk(buf) {
   function skipTlv(t) { const n = tag(t); p += n; }
 
   function readInt() {
-    const p0 = p;
-    const n   = tag(0x02);
+    const n = tag(0x02);
     const end = p + n;
     while (p < end && buf[p] === 0) p++;
     const data = buf.slice(p, end);
     p = end;
-    console.log(`[ASN1] INT pos=${p0} len=${n} p_after=${p}`);
     return data;
   }
 
   const u = b => Buffer.from(b).toString('base64url');
 
   tag(0x30);     // PKCS#8 outer SEQUENCE
-  skipTlv(0x02); // version INTEGER
-  skipTlv(0x30); // algorithmIdentifier SEQUENCE
-  tag(0x04);     // privateKey OCTET STRING → p apunta al DER PKCS#1
+  skipTlv(0x02); // version
+  skipTlv(0x30); // algorithmIdentifier
+  tag(0x04);     // privateKey OCTET STRING
   tag(0x30);     // PKCS#1 RSAPrivateKey SEQUENCE
   skipTlv(0x02); // PKCS#1 version
-  console.log(`[ASN1] inicio RSA fields p=${p} buf.length=${buf.length}`);
 
-  return {
-    kty: 'RSA', ext: true, key_ops: ['sign'], alg: 'RS256',
-    n:  u(readInt()),
-    e:  u(readInt()),
-    d:  u(readInt()),
-    p:  u(readInt()),
-    q:  u(readInt()),
-    dp: u(readInt()),
-    dq: u(readInt()),
-    qi: u(readInt()),
-  };
+  const n  = readInt();
+  const e  = readInt();
+  const d  = readInt();
+
+  // CRT params (p, q, dp, dq, qi) — opcionales para firmar, requeridos para eficiencia.
+  // Si la llave en el env está corrupta solo en esta sección, JWK con n/e/d igual funciona.
+  const crt = {};
+  try {
+    crt.p  = u(readInt());
+    crt.q  = u(readInt());
+    crt.dp = u(readInt());
+    crt.dq = u(readInt());
+    crt.qi = u(readInt());
+  } catch (_) { /* sin CRT: firma más lenta pero funcional */ }
+
+  return { kty: 'RSA', ext: true, key_ops: ['sign'], alg: 'RS256',
+           n: u(n), e: u(e), d: u(d), ...crt };
 }
 
 async function getGoogleAccessToken(scopes) {
@@ -73,7 +71,6 @@ async function getGoogleAccessToken(scopes) {
   const rawRaw = process.env.GOOGLE_PRIVATE_KEY || '';
 
   const rawKey = rawRaw.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
-
   const base64 = rawKey
     .split('\n')
     .filter(l => l && !l.startsWith('-----'))
