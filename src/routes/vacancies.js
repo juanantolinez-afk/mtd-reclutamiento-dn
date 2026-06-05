@@ -327,11 +327,11 @@ router.get('/:id/procesar', async (req, res) => {
         if (hasVacancyDesc && llmData && !llmData._unreadable) {
           vacancyMatch = await scoreMatchWithVacancy(llmData, vacancyDescription).catch(() => null);
         }
-        // score final: vacancy match normalizado a 60, o 'N/A', o completeness como fallback
+        // score final: vacancy match normalizado a 60, o completeness como fallback siempre
         const score = {
           total:          vacancyMatch
                             ? Math.round(vacancyMatch.score * 60 / 100)
-                            : hasVacancyDesc ? null : completeness.total,
+                            : completeness.total,
           breakdown:      completeness.breakdown,
           explicacion:    vacancyMatch?.explicacion || '',
           classification: completeness.classification,
