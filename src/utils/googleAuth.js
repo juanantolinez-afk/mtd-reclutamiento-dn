@@ -69,6 +69,7 @@ async function getGoogleAccessToken(scopes) {
 
   const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
   const rawRaw = process.env.GOOGLE_PRIVATE_KEY || '';
+  console.log(`[GoogleAuth] email=${email} keyLen=${rawRaw.length}`);
 
   const rawKey = rawRaw.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
   const base64 = rawKey

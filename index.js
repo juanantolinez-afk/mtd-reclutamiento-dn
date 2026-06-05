@@ -13,10 +13,10 @@ app.listen(PORT, async () => {
   console.log(`  Ambiente: ${process.env.NODE_ENV || 'development'}`);
 
   // Sembrar usuarios, sincronizar hashes y clasificaciones
-  await userService.seedDefaultUsers().catch(() => {});
-  await userService.syncPasswordHashes().catch(() => {});
-  sheetsService.ensureClasificacionesSheet().catch(() => {});
-  sheetsService.setupSheetsFormatting().catch(e => console.warn('  [Sheets] Formato:', e.message));
+  await userService.seedDefaultUsers().catch(e => console.warn('  [Auth] seed:', e.message, e.response?.data?.error?.message || ''));
+  await userService.syncPasswordHashes().catch(e => console.warn('  [Auth] sync:', e.message, e.response?.data?.error?.message || ''));
+  sheetsService.ensureClasificacionesSheet().catch(e => console.warn('  [Sheets] clf:', e.message, e.response?.data?.error?.message || ''));
+  sheetsService.setupSheetsFormatting().catch(e => console.warn('  [Sheets] Formato:', e.message, e.response?.data?.error?.message || ''));
 
   // Cargar IDs de etiquetas Bizneo (POSTULADO / PRESELECCIONADO / FINALISTA)
   bizneoService.loadStageTags().catch(() => {});

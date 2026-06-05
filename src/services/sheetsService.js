@@ -38,6 +38,7 @@ async function ensureSheet() {
   if (_ensured) return;
   const sheets = await _client();
   const spreadsheetId = _sid();
+  console.log(`[Sheets] ensureSheet spreadsheetId=${spreadsheetId} email=${process.env.GOOGLE_CLIENT_EMAIL}`);
 
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const exists = meta.data.sheets.some(s => s.properties.title === SHEET_NAME);
