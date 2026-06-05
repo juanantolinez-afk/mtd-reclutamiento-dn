@@ -3,9 +3,61 @@ const axios = require('axios');
 
 const _cache = new Map();
 
-// Obtiene un access token de Google usando WebCrypto para firmar el JWT.
-// webcrypto.subtle.importKey('pkcs8', ...) usa una ruta interna diferente a
-// crypto.createPrivateKey(), evitando el error de DECODER de OpenSSL 3.
+// Parsea un DER PKCS#8 RSA y devuelve un JWK con los componentes de la llave.
+// importKey('jwk', ...) construye la llave desde BIGNUMs directamente,
+// sin pasar por el DECODER framework de OpenSSL 3 que falla con ciertas llaves RSA
+// en Node.js 20 (tanto para pkcs8 DER como para PEM via createPrivateKey).
+function pkcs8DerToJwk(buf) {
+  let p = 0;
+
+  function readLen() {
+    const x = buf[p++];
+    if (x < 0x80) return x;
+    let n = 0, nb = x & 0x7f;
+    while (nb--) n = n * 256 + buf[p++];
+    return n;
+  }
+
+  // Lee el tag, avanza p al inicio del VALUE, devuelve la longitud del VALUE
+  function tag(t) {
+    if (buf[p] !== t) throw new Error(`ASN.1: esperado 0x${t.toString(16)} en pos ${p}, encontrado 0x${buf[p].toString(16)}`);
+    p++;
+    return readLen();
+  }
+
+  function skipTlv(t) { const n = tag(t); p += n; }
+
+  function readInt() {
+    const n   = tag(0x02);
+    const end = p + n;
+    while (p < end && buf[p] === 0) p++;   // strip leading zero (byte de signo)
+    const data = buf.slice(p, end);
+    p = end;
+    return data;
+  }
+
+  const u = b => Buffer.from(b).toString('base64url');
+
+  tag(0x30);     // PKCS#8 outer SEQUENCE
+  skipTlv(0x02); // version INTEGER
+  skipTlv(0x30); // algorithmIdentifier SEQUENCE
+  tag(0x04);     // privateKey OCTET STRING → p apunta al DER PKCS#1
+  tag(0x30);     // PKCS#1 RSAPrivateKey SEQUENCE
+  skipTlv(0x02); // PKCS#1 version
+
+  return {
+    kty: 'RSA', ext: true, key_ops: ['sign'], alg: 'RS256',
+    n:  u(readInt()),
+    e:  u(readInt()),
+    d:  u(readInt()),
+    p:  u(readInt()),
+    q:  u(readInt()),
+    dp: u(readInt()),
+    dq: u(readInt()),
+    qi: u(readInt()),
+  };
+}
+
 async function getGoogleAccessToken(scopes) {
   const scopeKey = Array.isArray(scopes) ? scopes.join(' ') : scopes;
   const cached   = _cache.get(scopeKey);
@@ -14,11 +66,8 @@ async function getGoogleAccessToken(scopes) {
   const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
   const rawRaw = process.env.GOOGLE_PRIVATE_KEY || '';
 
-  // Limpiar comillas externas y convertir \n literales a newlines reales
   const rawKey = rawRaw.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
 
-  // Extraer base64 puro: filtrar headers y quitar cualquier char no-base64
-  // (\r embebido en el medio de una línea no lo elimina .trim(), sí este replace)
   const base64 = rawKey
     .split('\n')
     .filter(l => l && !l.startsWith('-----'))
@@ -27,30 +76,12 @@ async function getGoogleAccessToken(scopes) {
     .replace(/[^A-Za-z0-9+/=]/g, '');
 
   const derBuf = Buffer.from(base64, 'base64');
+  const jwk    = pkcs8DerToJwk(derBuf);
 
-  // Calcular longitud exacta del DER desde la cabecera SEQUENCE de ASN.1.
-  // Node.js 20 WebCrypto es estricto: rechaza bytes sobrantes al final del buffer.
-  // Node.js 24 es permisivo, por eso funcionaba local pero no en Railway (v20.20.2).
-  let derLen = derBuf.length;
-  if (derBuf[0] === 0x30 && derBuf[1] === 0x82) {
-    derLen = 4 + ((derBuf[2] << 8) | derBuf[3]);
-  } else if (derBuf[0] === 0x30 && derBuf[1] === 0x81) {
-    derLen = 3 + derBuf[2];
-  } else if (derBuf[0] === 0x30) {
-    derLen = 2 + (derBuf[1] & 0x7f);
-  }
-
-  // Slice a ArrayBuffer independiente del tamaño exacto
-  const trimmed = derBuf.slice(0, derLen);
-  const der = trimmed.buffer.slice(trimmed.byteOffset, trimmed.byteOffset + trimmed.byteLength);
-
-  // Importar llave via WebCrypto (bypasses OpenSSL DECODER framework)
   const key = await webcrypto.subtle.importKey(
-    'pkcs8',
-    der,
+    'jwk', jwk,
     { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
+    false, ['sign']
   );
 
   const now = Math.floor(Date.now() / 1000);
