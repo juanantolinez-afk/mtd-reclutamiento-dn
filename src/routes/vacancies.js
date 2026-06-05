@@ -192,6 +192,7 @@ router.get('/:id/procesar', async (req, res) => {
 
   try {
     const key = `bizneo:candidates:${req.params.id}`;
+    if (forceReprocess) cache.del(key);
     let candidates = cache.get(key);
     if (!candidates) {
       candidates = await bizneoService.getAllCandidatesForJob(req.params.id);
@@ -236,8 +237,8 @@ router.get('/:id/procesar', async (req, res) => {
     for (let batchStart = 0; batchStart < filtered.length; batchStart += CONCURRENCY) {
       const batch = filtered.slice(batchStart, batchStart + CONCURRENCY);
 
-      // Solo pausar si alguno del batch requiere IA
-      const batchNeedsAI = batch.some(c => savedMap.get(String(c.id))?.procesado_ia !== 'true');
+      // Solo pausar si alguno del batch requiere IA (o si es force)
+      const batchNeedsAI = forceReprocess || batch.some(c => savedMap.get(String(c.id))?.procesado_ia !== 'true');
       if (batchStart > 0 && batchNeedsAI) await sleep(BATCH_PAUSE);
 
       await Promise.all(batch.map(async (c, batchIdx) => {

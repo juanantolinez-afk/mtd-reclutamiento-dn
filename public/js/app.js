@@ -1431,6 +1431,7 @@ function startSSEProcessing() {
 
       const pending = allCandidatesState.filter(c => !c.procesado_ia).length;
       btn.disabled    = false;
+      btn.dataset.force = '';
       btn.textContent = pending > 0 ? `⚡ Procesar ${pending} pendientes` : '⚡ Recalcular';
 
       document.getElementById('panel-subtitle').textContent =
