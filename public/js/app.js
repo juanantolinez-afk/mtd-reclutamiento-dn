@@ -516,7 +516,7 @@ function _globalBadge(c) {
   const abrev = c.global_abrev ? ` [${escapeHtml(c.global_abrev)}]` : '';
   const vacante = c.global_vacante && c.global_vacante !== currentVacancy?.title
     ? ` · ${escapeHtml(c.global_vacante.slice(0, 30))}` : '';
-  return `<div style="margin-top:4px"><span class="badge-global" title="Promovido en otra vacante">${label}${abrev}${vacante}</span></div>`;
+  return `<div style="margin-top:4px"><span class="badge-global" title="En otra vacante fue ${c.global_etapa === 'FINALISTA' ? 'Finalista' : 'Preseleccionado'}${c.global_vacante ? ': ' + c.global_vacante : ''}">↗ Otra vacante: ${label}${abrev}${vacante}</span></div>`;
 }
 
 function _expCompact(experience, totalMonths) {

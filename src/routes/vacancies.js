@@ -228,8 +228,12 @@ router.get('/:id/procesar', async (req, res) => {
     let vacancyDescription = '';
     try {
       const jobDetails = await bizneoService.getJobDetails(req.params.id);
-      vacancyDescription = stripHtml(jobDetails?.description || '');
-    } catch (_) {}
+      const raw = jobDetails?.description || jobDetails?.job_description || jobDetails?.body || '';
+      vacancyDescription = stripHtml(raw);
+      console.log(`[Vacante] desc chars=${vacancyDescription.length} keys=${Object.keys(jobDetails || {}).join(',')}`);
+    } catch (e) {
+      console.warn('[Vacante] getJobDetails falló:', e.message);
+    }
     const hasVacancyDesc = vacancyDescription.length > 80;
 
     const CONCURRENCY = 2;

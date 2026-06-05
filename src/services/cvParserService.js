@@ -433,7 +433,7 @@ REGLAS:
    - "TIEMPO LABORADO: X MESES" → usa X directamente
    - Sin duración clara: estima mínimo 6 meses por trabajo mencionado
 3. total_experience_months: suma de todos los meses sin contar superposiciones evidentes.
-4. skills: habilidades técnicas, blandas, software, herramientas, idiomas, conocimientos clínicos.
+4. skills: extrae TODAS las habilidades mencionadas: técnicas, blandas, software, herramientas, idiomas, conocimientos clínicos, áreas de experiencia. Incluye al menos 5 si el CV lo permite. No omitas nada.
 5. city: ciudad de residencia actual del candidato.
 6. Niveles: "último semestre"/"en curso" → pregrado; Sena técnico → tecnico; Sena tecnólogo → tecnologo; Diplomado → curso.
 
