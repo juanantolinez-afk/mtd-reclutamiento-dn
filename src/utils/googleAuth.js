@@ -20,7 +20,10 @@ function pkcs8DerToJwk(buf) {
 
   // Lee el tag, avanza p al inicio del VALUE, devuelve la longitud del VALUE
   function tag(t) {
-    if (buf[p] !== t) throw new Error(`ASN.1: esperado 0x${t.toString(16)} en pos ${p}, encontrado 0x${buf[p].toString(16)}`);
+    if (buf[p] !== t) {
+      const ctx = Buffer.from(buf.slice(Math.max(0, p - 4), p + 12)).toString('hex');
+      throw new Error(`ASN.1: esperado 0x${t.toString(16)} en pos ${p}, encontrado 0x${buf[p].toString(16)} | ctx[-4..+12]: ${ctx} | derLen=${buf.length}`);
+    }
     p++;
     return readLen();
   }
@@ -28,11 +31,13 @@ function pkcs8DerToJwk(buf) {
   function skipTlv(t) { const n = tag(t); p += n; }
 
   function readInt() {
+    const p0 = p;
     const n   = tag(0x02);
     const end = p + n;
-    while (p < end && buf[p] === 0) p++;   // strip leading zero (byte de signo)
+    while (p < end && buf[p] === 0) p++;
     const data = buf.slice(p, end);
     p = end;
+    console.log(`[ASN1] INT pos=${p0} len=${n} p_after=${p}`);
     return data;
   }
 
@@ -44,6 +49,7 @@ function pkcs8DerToJwk(buf) {
   tag(0x04);     // privateKey OCTET STRING → p apunta al DER PKCS#1
   tag(0x30);     // PKCS#1 RSAPrivateKey SEQUENCE
   skipTlv(0x02); // PKCS#1 version
+  console.log(`[ASN1] inicio RSA fields p=${p} buf.length=${buf.length}`);
 
   return {
     kty: 'RSA', ext: true, key_ops: ['sign'], alg: 'RS256',
