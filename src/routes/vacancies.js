@@ -176,6 +176,7 @@ router.get('/:id/procesar', async (req, res) => {
   res.flushHeaders();
 
   const forceReprocess = req.query.force === '1';
+  console.log(`[SSE] vacante=${req.params.id} force=${forceReprocess} query=${JSON.stringify(req.query)}`);
 
   const send = (payload) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);

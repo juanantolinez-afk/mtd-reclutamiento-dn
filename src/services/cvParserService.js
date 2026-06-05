@@ -463,7 +463,7 @@ async function callOpenRouterRaw(model, messages, { maxTokens = 4096, timeout = 
         {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://recruitmentmtd.bonto.run',
+            'HTTP-Referer': 'https://mtd-reclutamiento-dn-production.up.railway.app',
             'X-Title': 'MTD Reclutamiento',
           },
           timeout,
