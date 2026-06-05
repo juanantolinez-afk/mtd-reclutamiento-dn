@@ -16,11 +16,15 @@ async function getGoogleAccessToken(scopes) {
 
   // Extraer bytes DER del PEM (sin headers ni espacios)
   const base64 = rawKey
-    .replace(/-----BEGIN PRIVATE KEY-----/, '')
-    .replace(/-----END PRIVATE KEY-----/, '')
-    .replace(/\s+/g, '');
+    .split('\n')
+    .filter(l => l && !l.startsWith('-----'))
+    .map(l => l.trim())
+    .join('');
 
-  const der = Buffer.from(base64, 'base64');
+  const derBuf = Buffer.from(base64, 'base64');
+  // Slice a un ArrayBuffer independiente — Buffer puede ser vista de un pool compartido
+  // y WebCrypto en Node.js 20 puede leer el pool completo si no se aisla
+  const der = derBuf.buffer.slice(derBuf.byteOffset, derBuf.byteOffset + derBuf.byteLength);
 
   // Importar llave via WebCrypto (bypasses OpenSSL DECODER framework)
   const key = await webcrypto.subtle.importKey(
