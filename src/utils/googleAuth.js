@@ -12,7 +12,18 @@ async function getGoogleAccessToken(scopes) {
   if (cached && Date.now() < cached.expiry - 60000) return cached.token;
 
   const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
-  const rawKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  const rawRaw = process.env.GOOGLE_PRIVATE_KEY || '';
+
+  // Diagnóstico — se puede remover una vez confirmado que funciona
+  console.log('[GoogleAuth] Node:', process.version);
+  console.log('[GoogleAuth] rawRaw.length:', rawRaw.length);
+  console.log('[GoogleAuth] primeros 60 chars:', JSON.stringify(rawRaw.slice(0, 60)));
+  console.log('[GoogleAuth] tiene \\\\n literales:', rawRaw.includes('\\n'));
+  console.log('[GoogleAuth] tiene newlines reales:', rawRaw.includes('\n'));
+
+  // Limpiar comillas externas (si Railway guarda el valor con " alrededor)
+  const cleaned = rawRaw.replace(/^["']|["']$/g, '');
+  const rawKey  = cleaned.replace(/\\n/g, '\n');
 
   // Extraer bytes DER del PEM (sin headers ni espacios)
   const base64 = rawKey
@@ -21,10 +32,15 @@ async function getGoogleAccessToken(scopes) {
     .map(l => l.trim())
     .join('');
 
+  console.log('[GoogleAuth] base64.length:', base64.length, '(esperado ~1624)');
+  console.log('[GoogleAuth] base64 inicio:', base64.slice(0, 20));
+
   const derBuf = Buffer.from(base64, 'base64');
   // Slice a un ArrayBuffer independiente — Buffer puede ser vista de un pool compartido
-  // y WebCrypto en Node.js 20 puede leer el pool completo si no se aisla
   const der = derBuf.buffer.slice(derBuf.byteOffset, derBuf.byteOffset + derBuf.byteLength);
+
+  console.log('[GoogleAuth] der.byteLength:', der.byteLength, '(esperado ~1216)');
+  console.log('[GoogleAuth] der[0..4] hex:', Buffer.from(der).slice(0, 5).toString('hex'));
 
   // Importar llave via WebCrypto (bypasses OpenSSL DECODER framework)
   const key = await webcrypto.subtle.importKey(
