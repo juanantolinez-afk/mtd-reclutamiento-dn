@@ -11,6 +11,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`\n  MTD Reclutamiento corriendo en http://localhost:${PORT}`);
   console.log(`  Ambiente: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`  [Diag] SPREADSHEET_ID=${process.env.GOOGLE_SPREADSHEET_ID || '(no definido)'}`);
+  console.log(`  [Diag] CLIENT_EMAIL=${process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '(no definido)'}`);
 
   // Sembrar usuarios, sincronizar hashes y clasificaciones
   await userService.seedDefaultUsers().catch(e => console.warn('  [Auth] seed:', e.message, e.response?.data?.error?.message || ''));
