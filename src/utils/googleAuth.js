@@ -14,33 +14,35 @@ async function getGoogleAccessToken(scopes) {
   const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL;
   const rawRaw = process.env.GOOGLE_PRIVATE_KEY || '';
 
-  // Diagnóstico — se puede remover una vez confirmado que funciona
-  console.log('[GoogleAuth] Node:', process.version);
-  console.log('[GoogleAuth] rawRaw.length:', rawRaw.length);
-  console.log('[GoogleAuth] primeros 60 chars:', JSON.stringify(rawRaw.slice(0, 60)));
-  console.log('[GoogleAuth] tiene \\\\n literales:', rawRaw.includes('\\n'));
-  console.log('[GoogleAuth] tiene newlines reales:', rawRaw.includes('\n'));
+  // Limpiar comillas externas y convertir \n literales a newlines reales
+  const rawKey = rawRaw.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
 
-  // Limpiar comillas externas (si Railway guarda el valor con " alrededor)
-  const cleaned = rawRaw.replace(/^["']|["']$/g, '');
-  const rawKey  = cleaned.replace(/\\n/g, '\n');
-
-  // Extraer bytes DER del PEM (sin headers ni espacios)
+  // Extraer base64 puro: filtrar headers y quitar cualquier char no-base64
+  // (\r embebido en el medio de una línea no lo elimina .trim(), sí este replace)
   const base64 = rawKey
     .split('\n')
     .filter(l => l && !l.startsWith('-----'))
     .map(l => l.trim())
-    .join('');
-
-  console.log('[GoogleAuth] base64.length:', base64.length, '(esperado ~1624)');
-  console.log('[GoogleAuth] base64 inicio:', base64.slice(0, 20));
+    .join('')
+    .replace(/[^A-Za-z0-9+/=]/g, '');
 
   const derBuf = Buffer.from(base64, 'base64');
-  // Slice a un ArrayBuffer independiente — Buffer puede ser vista de un pool compartido
-  const der = derBuf.buffer.slice(derBuf.byteOffset, derBuf.byteOffset + derBuf.byteLength);
 
-  console.log('[GoogleAuth] der.byteLength:', der.byteLength, '(esperado ~1216)');
-  console.log('[GoogleAuth] der[0..4] hex:', Buffer.from(der).slice(0, 5).toString('hex'));
+  // Calcular longitud exacta del DER desde la cabecera SEQUENCE de ASN.1.
+  // Node.js 20 WebCrypto es estricto: rechaza bytes sobrantes al final del buffer.
+  // Node.js 24 es permisivo, por eso funcionaba local pero no en Railway (v20.20.2).
+  let derLen = derBuf.length;
+  if (derBuf[0] === 0x30 && derBuf[1] === 0x82) {
+    derLen = 4 + ((derBuf[2] << 8) | derBuf[3]);
+  } else if (derBuf[0] === 0x30 && derBuf[1] === 0x81) {
+    derLen = 3 + derBuf[2];
+  } else if (derBuf[0] === 0x30) {
+    derLen = 2 + (derBuf[1] & 0x7f);
+  }
+
+  // Slice a ArrayBuffer independiente del tamaño exacto
+  const trimmed = derBuf.slice(0, derLen);
+  const der = trimmed.buffer.slice(trimmed.byteOffset, trimmed.byteOffset + trimmed.byteLength);
 
   // Importar llave via WebCrypto (bypasses OpenSSL DECODER framework)
   const key = await webcrypto.subtle.importKey(
