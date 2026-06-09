@@ -87,7 +87,19 @@ async function getJobDetails(jobId) {
   }
 }
 
-const STAGE_TAGS = ['POSTULADO', 'PRESELECCIONADO', 'FINALISTA', 'NO_CONTINUA'];
+// Normaliza el valor de un tag para comparación: quita tildes, espacios→guión_bajo, mayúsculas
+function normalizeTag(s) {
+  return (s || '').trim().toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Z_]/g, '');
+}
+
+const STAGE_TAGS_NORM = ['POSTULADO', 'PRESELECCIONADO', 'FINALISTA', 'NO_CONTINUA'];
+
+function isStageTag(value) {
+  return STAGE_TAGS_NORM.includes(normalizeTag(value));
+}
 
 async function getCandidateTags(userId) {
   try {
@@ -117,22 +129,37 @@ async function addCandidateNote(userId, message) {
 
 async function setCandidateStageTag(userId, newStage) {
   try {
-    // Leer tags actuales y preservar los que no son de etapa
     const currentTags = await getCandidateTags(userId);
+    const stageTags    = currentTags.filter(t => isStageTag(t.value || t.name || t.tag_name || ''));
     const nonStageTags = currentTags
       .map(t => (t.value || t.name || t.tag_name || '').trim())
-      .filter(n => n && !STAGE_TAGS.includes(n.toUpperCase()));
-    const finalNames = [...nonStageTags, newStage];
+      .filter(n => n && !isStageTag(n));
 
-    // PATCH limpia todos los tags existentes
+    // Intentar PATCH para limpiar todo de una vez
+    let cleared = false;
     try {
-      await client.patch(`/candidates/${userId}/company_tags`, {});
-      console.log(`[Bizneo] tags limpiados (PATCH)`);
+      await client.patch(`/candidates/${userId}/company_tags`, { company_tag: { names: [] } });
+      cleared = true;
+      console.log(`[Bizneo] PATCH OK — tags limpiados`);
     } catch (e) {
-      console.warn(`[Bizneo] PATCH limpiar HTTP ${e.response?.status}`);
+      console.warn(`[Bizneo] PATCH HTTP ${e.response?.status} — intentando DELETE por ID`);
     }
 
-    // ADD aplica solo la nueva etapa + tags no-etapa que había antes
+    // Si PATCH falló, eliminar cada tag de etapa por su ID
+    if (!cleared) {
+      for (const tag of stageTags) {
+        if (!tag.id) continue;
+        try {
+          await client.delete(`/candidates/${userId}/company_tags/${tag.id}`);
+          console.log(`[Bizneo] DELETE tag id=${tag.id} (${tag.value}) OK`);
+        } catch (e) {
+          console.warn(`[Bizneo] DELETE tag id=${tag.id} HTTP ${e.response?.status}`);
+        }
+      }
+    }
+
+    // ADD: nueva etapa + cualquier tag no-etapa que tenía antes
+    const finalNames = [...nonStageTags, newStage];
     const r = await client.put(`/candidates/${userId}/company_tags/add_company_tags_by_name`, {
       company_tag: { names: finalNames },
     });
