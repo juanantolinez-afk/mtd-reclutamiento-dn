@@ -101,42 +101,14 @@ async function addCandidateNote(userId, message) {
   }
 }
 
-const STAGE_TAGS = ['POSTULADO', 'PRESELECCIONADO', 'FINALISTA', 'NO_CONTINUA'];
-
-async function getCandidateTags(userId) {
-  try {
-    const r = await client.get(`/candidates/${userId}/company_tags.json`);
-    const tags = r.data?.company_tags || r.data || [];
-    console.log(`[Bizneo] tags actuales (${userId}):`, JSON.stringify(tags).slice(0, 300));
-    return tags;
-  } catch (e) {
-    console.warn(`[Bizneo] getCandidateTags HTTP ${e.response?.status || e.code}`);
-    return [];
-  }
-}
-
 async function setCandidateStageTag(userId, newStage) {
   try {
-    // Obtener tags actuales y construir la lista final: no-etapas + nueva etapa
-    const currentTags = await getCandidateTags(userId);
-    const nonStageTags = currentTags
-      .map(t => (t.value || t.name || t.tag_name || '').trim())
-      .filter(n => n && !STAGE_TAGS.includes(n.toUpperCase()));
-    const finalNames = [...nonStageTags, newStage];
-
-    // PATCH limpia todos los tags (el body es ignorado por Bizneo, solo vacía la lista)
-    try {
-      await client.patch(`/candidates/${userId}/company_tags`, {});
-      console.log(`[Bizneo] tags limpiados (PATCH)`);
-    } catch (e) {
-      console.warn(`[Bizneo] PATCH limpiar HTTP ${e.response?.status}`);
-    }
-
-    // ADD pone únicamente la nueva etapa (+ los no-etapa que había antes)
+    const patchRes = await client.patch(`/candidates/${userId}/company_tags`, {});
+    console.log(`[Bizneo] PATCH company_tags → HTTP ${patchRes.status}`);
     const r = await client.put(`/candidates/${userId}/company_tags/add_company_tags_by_name`, {
-      company_tag: { names: finalNames },
+      company_tag: { names: [newStage] },
     });
-    console.log(`[Bizneo] tags ADD → [${finalNames.join(', ')}] (${r.status})`);
+    console.log(`[Bizneo] tag → ${newStage} (${r.status})`);
     return { ok: true };
   } catch (e) {
     const status = e.response?.status;
