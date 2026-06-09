@@ -74,15 +74,16 @@ async function sendSMS({ phone, message }) {
 
 // ── Plantillas ────────────────────────────────────────────────────────────────
 function noContinuaBody({ candidateName, vacancyTitle }) {
-  const name  = candidateName || 'Estimado/a candidato/a';
+  const name  = candidateName || 'candidato/a';
   const cargo = vacancyTitle  || 'la posición';
   return `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#222">
-  <p>Estimado/a <strong>${name}</strong>,</p>
-  <p>Agradecemos sinceramente el tiempo e interés que dedicaste a participar en nuestro proceso de selección para el cargo de <strong>${cargo}</strong> en <strong>Medicina y Terapias Domiciliarias – MTD</strong>.</p>
-  <p>Después de una cuidadosa evaluación de todos los perfiles, lamentamos informarte que en esta ocasión hemos decidido no continuar con tu candidatura. Esta decisión no refleja en ningún modo tu valor profesional ni el esfuerzo que pusiste en el proceso.</p>
-  <p>Te animamos a estar atento/a a futuras oportunidades en MTD, ya que tu perfil podría encajar perfectamente en otras posiciones.</p>
-  <p>Te deseamos mucho éxito en tu camino profesional.</p>
+  <p>Buen día, <strong>${name}</strong>,</p>
+  <p>Queremos contarte el resultado del proceso de selección para el cargo de <strong>${cargo}</strong> en <strong>Medicina y Terapias Domiciliarias – MTD</strong>.</p>
+  <p>Luego de revisar cuidadosamente todos los perfiles, en esta oportunidad fue seleccionada la persona que mejor se ajustó a los requisitos del cargo. Queremos que sepas que esto no significa que hayas hecho algo mal; en estos procesos solo puede elegirse a una persona entre muchos candidatos valiosos, y la decisión se basa en el ajuste al perfil en ese momento específico.</p>
+  <p>Agradecemos sinceramente el tiempo, el interés y el esfuerzo que dedicaste al proceso. Nos alegró mucho conocerte, y conservaremos tu hoja de vida en nuestra base de datos para tenerte en cuenta en futuros procesos donde tu perfil pueda encajar.</p>
+  <p>¡Te deseamos muchos éxitos en tu camino profesional!</p>
+  <p>Feliz día.</p>
   <p>Cordialmente,<br><strong>Equipo de Reclutamiento MTD</strong><br>Medicina y Terapias Domiciliarias</p>
 </div>`.trim();
 }
