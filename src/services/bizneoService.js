@@ -87,6 +87,20 @@ async function getJobDetails(jobId) {
   }
 }
 
+const STAGE_TAGS = ['POSTULADO', 'PRESELECCIONADO', 'FINALISTA', 'NO_CONTINUA'];
+
+async function getCandidateTags(userId) {
+  try {
+    const r = await client.get(`/candidates/${userId}/company_tags.json`);
+    const tags = r.data?.company_tags || r.data || [];
+    console.log(`[Bizneo] tags actuales (${userId}):`, JSON.stringify(tags).slice(0, 300));
+    return tags;
+  } catch (e) {
+    console.warn(`[Bizneo] getCandidateTags HTTP ${e.response?.status || e.code}`);
+    return [];
+  }
+}
+
 // userId = user_id del candidato (distinto al id de candidatura)
 async function addCandidateNote(userId, message) {
   try {
@@ -103,12 +117,26 @@ async function addCandidateNote(userId, message) {
 
 async function setCandidateStageTag(userId, newStage) {
   try {
-    const patchRes = await client.patch(`/candidates/${userId}/company_tags`, {});
-    console.log(`[Bizneo] PATCH company_tags → HTTP ${patchRes.status}`);
+    // Leer tags actuales y preservar los que no son de etapa
+    const currentTags = await getCandidateTags(userId);
+    const nonStageTags = currentTags
+      .map(t => (t.value || t.name || t.tag_name || '').trim())
+      .filter(n => n && !STAGE_TAGS.includes(n.toUpperCase()));
+    const finalNames = [...nonStageTags, newStage];
+
+    // PATCH limpia todos los tags existentes
+    try {
+      await client.patch(`/candidates/${userId}/company_tags`, {});
+      console.log(`[Bizneo] tags limpiados (PATCH)`);
+    } catch (e) {
+      console.warn(`[Bizneo] PATCH limpiar HTTP ${e.response?.status}`);
+    }
+
+    // ADD aplica solo la nueva etapa + tags no-etapa que había antes
     const r = await client.put(`/candidates/${userId}/company_tags/add_company_tags_by_name`, {
-      company_tag: { names: [newStage] },
+      company_tag: { names: finalNames },
     });
-    console.log(`[Bizneo] tag → ${newStage} (${r.status})`);
+    console.log(`[Bizneo] tags ADD → [${finalNames.join(', ')}] (${r.status})`);
     return { ok: true };
   } catch (e) {
     const status = e.response?.status;
