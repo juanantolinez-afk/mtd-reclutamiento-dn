@@ -81,6 +81,20 @@ app.use('/api', limiter, authenticate);
 app.use('/api/vacancies', vacanciesRouter);
 app.use('/api/sheets',    sheetsRouter);
 
+// Dispara recordatorios manualmente para probar (solo admin)
+app.post('/api/admin/test-reminders', async (req, res) => {
+  try {
+    const { rol } = req.user || {};
+    if (rol !== 'admin') return res.status(403).json({ success: false, error: 'Solo admin' });
+    const calendarService = require('./services/calendarService');
+    const sheetsService   = require('./services/sheetsService');
+    await calendarService.checkAndSendReminders(sheetsService);
+    res.json({ success: true, message: 'Chequeo ejecutado — revisa tu correo y los logs.' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ── Página de login ──────────────────────────────────────────────────────────
 app.get('/login', (req, res) => {
   const token = req.cookies?.mtd_token;
