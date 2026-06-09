@@ -516,7 +516,7 @@ function _globalBadge(c) {
   const abrev = c.global_abrev ? ` [${escapeHtml(c.global_abrev)}]` : '';
   const vacante = c.global_vacante && c.global_vacante !== currentVacancy?.title
     ? ` · ${escapeHtml(c.global_vacante.slice(0, 30))}` : '';
-  return `<div style="margin-top:4px"><span class="badge-global" title="En otra vacante fue ${c.global_etapa === 'FINALISTA' ? 'Finalista' : 'Preseleccionado'}${c.global_vacante ? ': ' + c.global_vacante : ''}">↗ Otra vacante: ${label}${abrev}${vacante}</span></div>`;
+  return `<div style="margin-top:4px"><span class="badge-global" title="Promovido en otra vacante">${label}${abrev}${vacante}</span></div>`;
 }
 
 function _expCompact(experience, totalMonths) {
@@ -595,8 +595,6 @@ function _calendarBtn(c) {
 function _cvIcon(cvStatus) {
   if (cvStatus === 'leido_ia')
     return `<span class="cv-ia cv-ia-ok" title="Procesado por IA">✓ IA</span>`;
-  if (cvStatus === 'leido_heuristico')
-    return `<span class="cv-ia cv-ia-ok" title="Procesado con análisis local">✓ CV</span>`;
   if (!cvStatus || cvStatus === 'sin_cv')
     return `<span class="cv-ia cv-ia-off" title="Sin CV adjunto en Bizneo">○ Sin CV</span>`;
   if (cvStatus.startsWith('leido_ia')) // variantes
@@ -1217,17 +1215,19 @@ document.getElementById('cal-modal-confirm').addEventListener('click', async () 
 let _ncCurrentData = null;
 
 function _noContinuaDefaultBody(nombre, vacante) {
-  const n = nombre  || 'Estimado/a candidato/a';
+  const n = nombre  || 'candidato/a';
   const v = vacante || 'la posición';
-  return `Estimado/a ${n},
+  return `Buen día, ${n},
 
-Agradecemos sinceramente el tiempo e interés que dedicaste a participar en nuestro proceso de selección para el cargo de ${v} en Medicina y Terapias Domiciliarias – MTD.
+Queremos contarte el resultado del proceso de selección para el cargo de ${v} en Medicina y Terapias Domiciliarias – MTD.
 
-Después de una cuidadosa evaluación de todos los perfiles, lamentamos informarte que en esta ocasión hemos decidido no continuar con tu candidatura. Esta decisión no refleja tu valor profesional ni el esfuerzo que pusiste en el proceso.
+Luego de revisar cuidadosamente todos los perfiles, en esta oportunidad fue seleccionada la persona que mejor se ajustó a los requisitos del cargo. Queremos que sepas que esto no significa que hayas hecho algo mal; en estos procesos solo puede elegirse a una persona entre muchos candidatos valiosos, y la decisión se basa en el ajuste al perfil en ese momento específico.
 
-Te animamos a estar atento/a a futuras oportunidades en MTD, ya que tu perfil podría encajar perfectamente en otras posiciones.
+Agradecemos sinceramente el tiempo, el interés y el esfuerzo que dedicaste al proceso. Nos alegró mucho conocerte, y conservaremos tu hoja de vida en nuestra base de datos para tenerte en cuenta en futuros procesos donde tu perfil pueda encajar.
 
-Te deseamos mucho éxito en tu camino profesional.
+¡Te deseamos muchos éxitos en tu camino profesional!
+
+Feliz día.
 
 Cordialmente,
 Equipo de Reclutamiento MTD
@@ -1431,7 +1431,6 @@ function startSSEProcessing() {
 
       const pending = allCandidatesState.filter(c => !c.procesado_ia).length;
       btn.disabled    = false;
-      btn.dataset.force = '';
       btn.textContent = pending > 0 ? `⚡ Procesar ${pending} pendientes` : '⚡ Recalcular';
 
       document.getElementById('panel-subtitle').textContent =
