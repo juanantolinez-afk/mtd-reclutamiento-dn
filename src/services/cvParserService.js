@@ -432,8 +432,10 @@ REGLAS:
    - Rango "ene 2020 - dic 2021" → calcula los meses exactos (24 en este caso)
    - "TIEMPO LABORADO: X MESES" → usa X directamente
    - Sin duración clara: estima mínimo 6 meses por trabajo mencionado
+   - CAMPO CARGO: busca "CARGO QUE DESEMPEÑÓ:", "CARGO:", "PUESTO:", "POSICIÓN:", "ROL:" o cualquier título laboral en el contexto cercano. NUNCA dejes role en null si hay texto de cargo disponible.
+   - Si el cargo no está explícito pero la empresa es claramente de salud y hay información de funciones, infiere un cargo genérico (ej: "Auxiliar de salud").
 3. total_experience_months: suma de todos los meses sin contar superposiciones evidentes.
-4. skills: extrae TODAS las habilidades mencionadas: técnicas, blandas, software, herramientas, idiomas, conocimientos clínicos, áreas de experiencia. Incluye al menos 5 si el CV lo permite. No omitas nada.
+4. skills: habilidades técnicas, blandas, software, herramientas, idiomas, conocimientos clínicos.
 5. city: ciudad de residencia actual del candidato.
 6. Niveles: "último semestre"/"en curso" → pregrado; Sena técnico → tecnico; Sena tecnólogo → tecnologo; Diplomado → curso.
 
@@ -443,7 +445,7 @@ CASO ESPECIAL: Si el documento está completamente vacío, es ilegible o no cont
 RESPONDE SOLO con este JSON (sin texto extra, sin \`\`\`json):
 {
   "education": [{"degree":"string","institution":"string|null","year":"string|null","level":"bachiller|auxiliar|curso|tecnico|tecnologo|pregrado|especializacion|maestria|doctorado"}],
-  "experience": [{"role":"string|null","company":"string|null","duration_months":number}],
+  "experience": [{"role":"string","company":"string|null","duration_months":number}],
   "skills": ["string"],
   "city": "string|null",
   "total_experience_months": number,
@@ -463,7 +465,7 @@ async function callOpenRouterRaw(model, messages, { maxTokens = 4096, timeout = 
         {
           headers: {
             'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://mtd-reclutamiento-dn-production.up.railway.app',
+            'HTTP-Referer': 'https://recruitmentmtd.bonto.run',
             'X-Title': 'MTD Reclutamiento',
           },
           timeout,
@@ -494,16 +496,12 @@ async function callOpenRouterRaw(model, messages, { maxTokens = 4096, timeout = 
 
 async function callWithFallback(messages, options = {}) {
   if (!process.env.OPENROUTER_API_KEY) return null;
-  const primary  = process.env.OPENROUTER_MODEL          || 'meta-llama/llama-3.3-70b-instruct:free';
+  const primary  = process.env.OPENROUTER_MODEL          || 'openai/gpt-4o-mini';
   const fallback = process.env.OPENROUTER_FALLBACK_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
 
   try {
     const content = await callOpenRouterRaw(primary, messages, options);
     if (content) return content;
-    if (primary !== fallback) {
-      console.warn(`[OpenRouter] modelo "${primary}" devolvió respuesta vacía, usando fallback "${fallback}"`);
-      return callOpenRouterRaw(fallback, messages, options);
-    }
   } catch (e) {
     const status = e.response?.status;
     if (status === 401 || primary === fallback) throw e;
@@ -528,52 +526,32 @@ async function parseCVWithLLM(cvInput) {
 
   console.log(`[LLM] parseCVWithLLM: apiKey=${!!process.env.OPENROUTER_API_KEY}, textLen=${text.trim().length}, model=${process.env.OPENROUTER_MODEL || '(default)'}`);
 
-  if (text.trim().length <= 100) {
-    console.warn(`[LLM] Texto demasiado corto (${text.trim().length} chars)`);
-    return null;
-  }
-
   if (!process.env.OPENROUTER_API_KEY) {
-    console.warn('[LLM] OPENROUTER_API_KEY no configurada — usando heurístico');
-    const h = parseCVHeuristic(text);
-    return h ? { ...h, _via_llm: false, _via_heuristic: true } : null;
+    console.warn('[LLM] OPENROUTER_API_KEY no configurada — saltando IA');
+    return { _llm_error: true, _reason: 'OPENROUTER_API_KEY no configurada', _via_llm: false };
+  }
+  if (text.trim().length <= 100) {
+    console.warn(`[LLM] Texto demasiado corto (${text.trim().length} chars) — PDF sin texto extraíble`);
+    return null;
   }
 
   try {
     const raw = await callOpenRouter(text);
+    if (!raw) return { _llm_error: true, _reason: 'Sin respuesta del modelo', _via_llm: false };
 
-    if (raw) {
-      // Extracción robusta: limpia bloques markdown y busca el JSON
-      let parsed = null;
-      try {
-        const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-        parsed = JSON.parse(clean);
-      } catch {
-        const jsonMatch = raw.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); } catch { /* sigue al fallback */ }
-        }
-      }
+    const clean  = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
 
-      if (parsed) {
-        if (parsed.unreadable) {
-          return { _unreadable: true, _reason: parsed.reason || 'ilegible', _via_llm: true };
-        }
-        return { ...normalizeLLMOutput(parsed), _via_llm: true };
-      }
-      console.warn('[LLM] Respuesta no parseable, usando heurístico');
-    } else {
-      console.warn('[LLM] Sin respuesta del modelo, usando heurístico');
+    if (parsed.unreadable) {
+      return { _unreadable: true, _reason: parsed.reason || 'ilegible', _via_llm: true };
     }
+
+    return { ...normalizeLLMOutput(parsed), _via_llm: true };
   } catch (e) {
     const reason = e.response?.data?.error?.message || e.message || 'error desconocido';
-    console.warn('[LLM] Fallo:', reason, '— usando heurístico');
+    console.error('[LLM] Fallo:', reason);
+    return { _llm_error: true, _reason: reason.slice(0, 100), _via_llm: false };
   }
-
-  // Fallback al parser heurístico cuando LLM falla o no responde
-  const h = parseCVHeuristic(text);
-  if (h) return { ...h, _via_llm: false, _via_heuristic: true };
-  return { _llm_error: true, _reason: 'Sin respuesta y heurístico vacío', _via_llm: false };
 }
 
 // Elimina etiquetas HTML para limpiar descripción de vacante

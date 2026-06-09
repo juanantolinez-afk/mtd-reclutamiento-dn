@@ -58,6 +58,17 @@ function normalizeClfLabel(raw) {
   return map[raw] || raw;
 }
 
+function globalBadgeFields(entry, currentVacancyId) {
+  if (!entry?.etapa || String(entry.vacante_id) === String(currentVacancyId)) {
+    return { global_etapa: null, global_vacante: null, global_abrev: null };
+  }
+  return {
+    global_etapa:   entry.etapa          || null,
+    global_vacante: entry.vacante_nombre || null,
+    global_abrev:   entry.usuario_abrev  || null,
+  };
+}
+
 function reconstructFromSaved(i, saved, raw, jobId) {
   const slug = raw?.slug || toBizneoSlug(
     saved.nombre?.split(' ')[0]             || '',
@@ -176,7 +187,6 @@ router.get('/:id/procesar', async (req, res) => {
   res.flushHeaders();
 
   const forceReprocess = req.query.force === '1';
-  console.log(`[SSE] vacante=${req.params.id} force=${forceReprocess} query=${JSON.stringify(req.query)}`);
 
   const send = (payload) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -193,7 +203,6 @@ router.get('/:id/procesar', async (req, res) => {
 
   try {
     const key = `bizneo:candidates:${req.params.id}`;
-    if (forceReprocess) cache.del(key);
     let candidates = cache.get(key);
     if (!candidates) {
       candidates = await bizneoService.getAllCandidatesForJob(req.params.id);
@@ -228,12 +237,8 @@ router.get('/:id/procesar', async (req, res) => {
     let vacancyDescription = '';
     try {
       const jobDetails = await bizneoService.getJobDetails(req.params.id);
-      const raw = jobDetails?.description || jobDetails?.job_description || jobDetails?.body || '';
-      vacancyDescription = stripHtml(raw);
-      console.log(`[Vacante] desc chars=${vacancyDescription.length} keys=${Object.keys(jobDetails || {}).join(',')}`);
-    } catch (e) {
-      console.warn('[Vacante] getJobDetails falló:', e.message);
-    }
+      vacancyDescription = stripHtml(jobDetails?.description || '');
+    } catch (_) {}
     const hasVacancyDesc = vacancyDescription.length > 80;
 
     const CONCURRENCY = 2;
@@ -242,8 +247,8 @@ router.get('/:id/procesar', async (req, res) => {
     for (let batchStart = 0; batchStart < filtered.length; batchStart += CONCURRENCY) {
       const batch = filtered.slice(batchStart, batchStart + CONCURRENCY);
 
-      // Solo pausar si alguno del batch requiere IA (o si es force)
-      const batchNeedsAI = forceReprocess || batch.some(c => savedMap.get(String(c.id))?.procesado_ia !== 'true');
+      // Solo pausar si alguno del batch requiere IA
+      const batchNeedsAI = batch.some(c => savedMap.get(String(c.id))?.procesado_ia !== 'true');
       if (batchStart > 0 && batchNeedsAI) await sleep(BATCH_PAUSE);
 
       await Promise.all(batch.map(async (c, batchIdx) => {
@@ -262,13 +267,17 @@ router.get('/:id/procesar', async (req, res) => {
           const isTerminalNow = bizPhaseNow && TERMINAL.some(t => bizPhaseNow.toLowerCase().includes(t));
           if (isTerminalNow && !savedData.cv_status?.startsWith('sin_procesar:')) {
             const newStatus = `sin_procesar: estado "${bizPhaseNow}"`;
-            const rebuilt = { ...reconstructFromSaved(i, savedData, c, req.params.id), cv_status: newStatus };
+            const rebuilt = {
+              ...reconstructFromSaved(i, savedData, c, req.params.id),
+              cv_status: newStatus,
+              ...globalBadgeFields(globalMap.get(String(c.id)), req.params.id),
+            };
             send(rebuilt);
             sheetsService.updateFields(String(c.id), req.params.id, { cv_status: newStatus })
               .catch(() => {});
             return;
           }
-          send(reconstructFromSaved(i, savedData, c, req.params.id));
+          send({ ...reconstructFromSaved(i, savedData, c, req.params.id), ...globalBadgeFields(globalMap.get(String(c.id)), req.params.id) });
           return;
         }
 
@@ -303,8 +312,6 @@ router.get('/:id/procesar', async (req, res) => {
             } else if (llmData?._via_llm) {
               send({ type: 'progress', index: i + 1, step: 'Analizado con IA ✓' });
               cvStatus = 'leido_ia';
-            } else if (llmData?._via_heuristic) {
-              cvStatus = 'leido_heuristico';
             } else if (llmData?._llm_error) {
               cvStatus = `error: ${(llmData._reason || 'error IA').slice(0, 60)}`;
               llmData  = null;
@@ -322,12 +329,11 @@ router.get('/:id/procesar', async (req, res) => {
         const totalMonths   = llmData?.total_experience_months || 0;
         const yearsExp      = totalMonths > 0 ? Math.round(totalMonths / 12 * 10) / 10 : 0;
 
-        // Score por vacante: si hay descripción usamos LLM; si no, N/A
+        // Score por vacante: si hay descripción usamos LLM; sino completeness como fallback
         let vacancyMatch = null;
         if (hasVacancyDesc && llmData && !llmData._unreadable) {
           vacancyMatch = await scoreMatchWithVacancy(llmData, vacancyDescription).catch(() => null);
         }
-        // score final: vacancy match normalizado a 60, o completeness como fallback siempre
         const score = {
           total:          vacancyMatch
                             ? Math.round(vacancyMatch.score * 60 / 100)
@@ -335,7 +341,7 @@ router.get('/:id/procesar', async (req, res) => {
           breakdown:      completeness.breakdown,
           explicacion:    vacancyMatch?.explicacion || '',
           classification: completeness.classification,
-          vacancy_na:     hasVacancyDesc && !vacancyMatch,
+          vacancy_na:     false,
           vacancy_match:  vacancyMatch,
         };
         const candidateSlug = c.slug || toBizneoSlug(c.first_name, c.last_name);
@@ -366,9 +372,9 @@ router.get('/:id/procesar', async (req, res) => {
           bizneo_url:              bizneoUrl(req.params.id, c.id),
           avatar_url:              c.avatar_url || '',
           score:                   score.total,
-          score_vacante:           score.vacancy_na ? 'N/A' : (score.vacancy_match ? Math.round(score.vacancy_match.score) : ''),
-          vacancy_na:              score.vacancy_na || false,
-          vacancy_na_reason:       score.vacancy_na ? 'La vacante no tiene descripción o requisitos suficientes para calcular el puntaje.' : '',
+          score_vacante:           score.vacancy_match ? Math.round(score.vacancy_match.score) : '',
+          vacancy_na:              false,
+          vacancy_na_reason:       '',
           explicacion:             score.explicacion,
           breakdown:               score.breakdown,
           classification:          score.classification,
@@ -378,9 +384,7 @@ router.get('/:id/procesar', async (req, res) => {
           edad:                    edad ?? '',
           fecha_postulacion:       fechaPost,
           fecha_entrevista:        savedData?.fecha_entrevista || '',
-          global_etapa:   globalMap.get(String(c.id))?.etapa          || null,
-          global_vacante: globalMap.get(String(c.id))?.vacante_nombre || null,
-          global_abrev:   globalMap.get(String(c.id))?.usuario_abrev  || null,
+          ...globalBadgeFields(globalMap.get(String(c.id)), req.params.id),
         };
 
         send(payload);
