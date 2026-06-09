@@ -11,41 +11,31 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`\n  MTD Reclutamiento corriendo en http://localhost:${PORT}`);
   console.log(`  Ambiente: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`  [Diag] SPREADSHEET_ID=${process.env.GOOGLE_SPREADSHEET_ID || '(no definido)'}`);
-  console.log(`  [Diag] CLIENT_EMAIL=${process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '(no definido)'}`);
 
   // Sembrar usuarios, sincronizar hashes y clasificaciones
-  await userService.seedDefaultUsers().catch(e => console.warn('  [Auth] seed:', e.message, e.response?.data?.error?.message || ''));
-  await userService.syncPasswordHashes().catch(e => console.warn('  [Auth] sync:', e.message, e.response?.data?.error?.message || ''));
-  sheetsService.ensureClasificacionesSheet().catch(e => console.warn('  [Sheets] clf:', e.message, e.response?.data?.error?.message || ''));
-  sheetsService.setupSheetsFormatting().catch(e => console.warn('  [Sheets] Formato:', e.message, e.response?.data?.error?.message || ''));
+  await userService.seedDefaultUsers().catch(() => {});
+  await userService.syncPasswordHashes().catch(() => {});
+  sheetsService.ensureClasificacionesSheet().catch(() => {});
+  sheetsService.setupSheetsFormatting().catch(e => console.warn('  [Sheets] Formato:', e.message));
 
   // Cargar IDs de etiquetas Bizneo (POSTULADO / PRESELECCIONADO / FINALISTA)
   bizneoService.loadStageTags().catch(() => {});
 
-  // Recordatorios de entrevistas — intervalo dinámico según calendar
+  // Recordatorios de entrevistas — lee fecha_entrevista desde Sheets, sin necesidad de Google Calendar
   const hasEmail = process.env.BREVO_API_KEY || (process.env.GMAIL_SA_EMAIL && process.env.GMAIL_SA_KEY);
-  if (hasEmail && process.env.GOOGLE_CALENDAR_ID) {
+  if (hasEmail) {
     async function checkRemindersDynamic() {
       try {
-        const events = await calendarService.getUpcomingInterviews();
         await calendarService.checkAndSendReminders(sheetsService).catch(() => {});
-
-        // Si hay entrevistas próximas, chequea cada 1 hora. Si no, cada 6 horas.
-        const nextCheck = events.length > 0 ? 60 * 60 * 1000 : 6 * 60 * 60 * 1000;
-        setTimeout(checkRemindersDynamic, nextCheck);
       } catch (e) {
-        console.error('[Calendar] Error en chequeo dinámico:', e.message);
-        setTimeout(checkRemindersDynamic, 60 * 60 * 1000);
+        console.error('[Recordatorio] Error:', e.message);
       }
+      setTimeout(checkRemindersDynamic, 6 * 60 * 60 * 1000); // cada 6 horas
     }
-
     checkRemindersDynamic();
-    console.log('  Recordatorios de entrevistas: activos (intervalo dinámico según calendar)');
-  } else if (!hasEmail) {
-    console.log('  Recordatorios: deshabilitados (sin BREVO_API_KEY ni GMAIL configurados)');
+    console.log('  Recordatorios de entrevistas: activos (basado en Sheets, cada 6h)');
   } else {
-    console.log('  Recordatorios: deshabilitados (sin GOOGLE_CALENDAR_ID)');
+    console.log('  Recordatorios: deshabilitados (sin BREVO_API_KEY ni GMAIL configurados)');
   }
 
   // Pre-calentar caché de vacantes
